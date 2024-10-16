@@ -1,17 +1,19 @@
 module mosart_control_type
 
-  use shr_kind_mod,  only : r8 => shr_kind_r8, CL => SHR_KIND_CL
-  use shr_sys_mod,   only : shr_sys_abort
-  use shr_const_mod, only : shr_const_pi, shr_const_rearth
-  use shr_mpi_mod,   only : shr_mpi_sum, shr_mpi_max
-  use mosart_io,     only : ncd_io, ncd_pio_openfile, ncd_pio_closefile
-  use mosart_vars,   only : mainproc, iam, npes, mpicom_rof, iulog, spval, re
-  use pio,           only : file_desc_t, PIO_BCAST_ERROR, pio_seterrorhandling
-  use ESMF,          only : ESMF_DistGrid, ESMF_Array, ESMF_RouteHandle, ESMF_SUCCESS, &
-                            ESMF_DistGridCreate, ESMF_ArrayCreate, ESMF_ArrayHaloStore, &
-                            ESMF_ArrayHalo, ESMF_ArrayGet
-  use perf_mod,      only : t_startf, t_stopf
-  use nuopc_shr_methods  , only : chkerr
+  use shr_kind_mod,      only : r8 => shr_kind_r8, CS => shr_kind_cs
+  use shr_sys_mod,       only : shr_sys_abort
+  use shr_const_mod,     only : shr_const_pi, shr_const_rearth
+  use shr_string_mod,    only : shr_string_listGetNum, shr_string_listGetName
+  use shr_mpi_mod,       only : shr_mpi_sum
+  use mosart_io,         only : ncd_io, ncd_pio_openfile, ncd_pio_closefile
+  use mosart_vars,       only : mainproc, iam, npes, mpicom_rof, iulog, spval, re, vm
+  use pio,               only : file_desc_t, PIO_BCAST_ERROR, pio_seterrorhandling
+  use ESMF,              only : ESMF_DistGrid, ESMF_Array, ESMF_RouteHandle, ESMF_SUCCESS, &
+                                ESMF_DistGridCreate, ESMF_ArrayCreate, ESMF_ArrayHaloStore, &
+                                ESMF_ArrayHalo, ESMF_ArrayGet, ESMF_VMAllReduce, ESMF_REDUCE_SUM
+  use perf_mod,          only : t_startf, t_stopf
+  use nuopc_shr_methods, only : chkerr
+  use shr_lnd2rof_tracers_mod, only : shr_lnd2rof_tracers_readnl ! TODO: this must be added in share code
 
   implicit none
   private
@@ -27,6 +29,9 @@ module mosart_control_type
      ! tracers
      integer :: ntracers = -999                      ! number of tracers
      character(len=3), allocatable :: tracer_names(:)! tracer names
+     integer :: nt_liq                               ! index of liquid water tracer in tracer_names
+     integer :: nt_ice                               ! index of ice tracer in tracer_names
+     logical :: rof_from_glc                         ! if true, will receive liq and ice runoff from glc
 
      ! decomp info
      integer :: begr                                 ! local start index
@@ -46,23 +51,24 @@ module mosart_control_type
      real(r8)          :: totarea                    ! global area
 
      ! inputs to MOSART
-     real(r8), pointer :: qsur(:,:) => null()        ! surface forcing [m3/s]
-     real(r8), pointer :: qsub(:,:) => null()        ! subsurface forcing [m3/s]
-     real(r8), pointer :: qgwl(:,:) => null()        ! glacier/wetland/lake forcing [m3/s]
+     real(r8), pointer :: qsur(:,:) => null()        ! surface runoff from coupler [m3/s] (lnd)
+     real(r8), pointer :: qsub(:,:) => null()        ! subsurfacer runoff from coupler [m3/s] (lnd)
+     real(r8), pointer :: qgwl(:,:) => null()        ! glacier/wetland/lake runoff from coupler [m3/s] (lnd)
+     real(r8), pointer :: qirrig(:) => null()        ! irrigation flow from coupler [m3/s]
+     real(r8), pointer :: qglc_liq(:) => null()      ! glacier liquid runoff from coupler [m3/s] (glc)
+     real(r8), pointer :: qglc_ice(:) => null()      ! glacier ice runoff from coupler [m3/s] (glc)
 
      ! outputs from MOSART
-     real(r8), pointer :: flood(:) => null()         ! return flood water sent back to clm [m3/s]
-     real(r8), pointer :: runoff(:,:) => null()      ! return mosart basin derived flow [m3/s]
-     real(r8), pointer :: direct(:,:) => null()      ! return direct flow [m3/s]
-     real(r8), pointer :: qirrig(:) => null()        ! irrigation [m3/s]
-     real(r8), pointer :: qirrig_actual(:) => null() ! minimum of irrigation and available main channel storage
-     real(r8), pointer :: zwt(:) => null()           ! water table depth [m]
-     real(r8), pointer :: slope(:) => null()         ! slope, using for testing currently
+     real(r8), pointer :: flood(:) => null()         ! flood water to coupler [m3/s] (lnd)
+     real(r8), pointer :: runoff(:,:) => null()      ! runoff (from outlet to reach) to coupler [m3/s]
+     real(r8), pointer :: direct(:,:) => null()      ! direct flow to outlet from land input [m3/s]
+     real(r8), pointer :: qirrig_actual(:) => null() ! minimum of irrigation and available main channel storage [m3/s]
+     real(r8), pointer :: direct_glc(:,:) =>null()   ! direct flow to outlet from glc input [m3/s]
 
      ! storage, runoff
-     real(r8), pointer :: runofflnd(:,:) => null()   ! runoff masked for land (m3 H2O/s)
-     real(r8), pointer :: runoffocn(:,:) => null()   ! runoff masked for ocn  (m3 H2O/s)
-     real(r8), pointer :: runofftot(:,:) => null()   ! total runoff masked for ocn  (m3 H2O/s)
+     real(r8), pointer :: runofflnd(:,:) => null()   ! runoff masked for land [m3/s]
+     real(r8), pointer :: runoffocn(:,:) => null()   ! runoff masked for ocn  [m3/s]
+     real(r8), pointer :: runofftot(:,:) => null()   ! total runoff masked for ocn  [m3/s]
      real(r8), pointer :: dvolrdt(:,:) => null()     ! change in storage (mm/s)
      real(r8), pointer :: dvolrdtlnd(:,:) => null()  ! dvolrdt masked for land (mm/s)
      real(r8), pointer :: dvolrdtocn(:,:) => null()  ! dvolrdt masked for ocn  (mm/s)
@@ -70,28 +76,27 @@ module mosart_control_type
      real(r8), pointer :: fthresh(:) => null()       ! water flood threshold
 
      ! flux variables
-     real(r8), pointer :: flow(:,:) => null()        ! mosart flow (m3/s)
-     real(r8), pointer :: evel(:,:) => null()        ! effective tracer velocity (m/s)
+     real(r8), pointer :: flow(:,:) => null()        ! stream flow out of gridcell (m3/s)
+     real(r8), pointer :: evel(:,:) => null()        ! effective tracer velocity (m/s) NOT_USED
      real(r8), pointer :: erout_prev(:,:) => null()  ! erout previous timestep (m3/s)
      real(r8), pointer :: eroutup_avg(:,:) => null() ! eroutup average over coupling period (m3/s)
      real(r8), pointer :: erlat_avg(:,:) => null()   ! erlateral average over coupling period (m3/s)
-     real(r8), pointer :: effvel(:) => null()
+     real(r8), pointer :: effvel(:) => null()        ! effective velocity for a tracer NOT_USED
 
      ! halo operations
      type(ESMF_RouteHandle) :: haloHandle
-     integer , pointer      :: halo_arrayptr_index(:,:) => null() ! index into halo_arrayptr that corresponds to a halo point
-     type(ESMF_Array)       :: halo_array
-     real(r8), pointer      :: halo_arrayptr(:) => null()         ! preallocated memory for exclusive region plus halo
+     type(ESMF_Array)       :: fld_halo_array
      type(ESMF_Array)       :: lon_halo_array
-     real(r8), pointer      :: lon_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
      type(ESMF_Array)       :: lat_halo_array
+     integer , pointer      :: halo_arrayptr_index(:,:) => null() ! index into halo_arrayptr that corresponds to a halo point
+     real(r8), pointer      :: fld_halo_arrayptr(:) => null()         ! preallocated memory for exclusive region plus halo
+     real(r8), pointer      :: lon_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
      real(r8), pointer      :: lat_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
-     type(ESMF_Array)       :: zwt_halo_array
-     real(r8), pointer      :: zwt_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
 
    contains
 
      procedure, public  :: Init
+     procedure, public  :: init_tracer_names
      procedure, private :: init_decomp
      procedure, private :: test_halo
      procedure, public  :: calc_gradient
@@ -119,18 +124,52 @@ module mosart_control_type
   integer, public :: halo_w  = 7
   integer, public :: halo_nw = 8
 
-  ! dimensions of halo array
-  integer :: halo_zwt = 1
-  integer :: halo_lon = 2
-  integer :: halo_att = 3
+  ! The following are set from
 
   character(*), parameter :: u_FILE_u = &
        __FILE__
 
-  !========================================================================
+!========================================================================
 contains
-  !========================================================================
+!========================================================================
 
+  subroutine init_tracer_names(this)
+
+    ! Set indices for liquid water and ice runoff as well as additional tracers.
+
+    ! Arguments
+    class(control_type) :: this
+
+    ! Local variables
+    integer :: nt           ! tracer index
+    integer :: ntracers     ! total number of tracers
+    integer :: nliq_tracers ! number of liquid tracers (including non-water tracers)
+    character(len=*),parameter :: subname = '(mosart_control_type: init_tracer_names)'
+    !-----------------------------------------------------------------------
+
+    ! lnd2rof liquid tracers (liquid tracers OTHER than water)
+    call shr_lnd2rof_tracers_readnl('drv_flds_in', lnd2rof_tracers)
+
+    ! Determine number of tracers and array of tracer names
+    nliq_tracers = shr_string_listGetNum(lnd2rof_tracers) + 1 ! extra 1 for liquid water
+    this%ntracers = nliq_tracers + 1 ! extra 1 for ice
+    ntracers = this%ntracers
+
+    allocate(this%tracer_names(ntracers))
+    this%tracer_names(1) = 'LIQ'
+    this%tracer_names(ntracers) = 'ICE'
+    do nt = 2,nliq_tracers
+      ! Note that i-1 is the index in the string - since it refers only to non-water tracers
+      call shr_string_listGetName(lnd2rof_tracers, nt-1, this%tracer_names(nt))
+    end do
+
+    ! Hardwire tracer indices for liquid water and ice
+    this%nt_liq = 1             ! liquid water
+    this%nt_ice = this%ntracers ! ice
+
+  end subroutine init_tracer_names
+
+  !========================================================================
   subroutine Init(this, locfn, decomp_option, use_halo_option, IDkey, rc)
 
     ! Arguments
@@ -148,7 +187,8 @@ contains
     real(r8)          :: rlatn(this%nlat)                 ! latitude of 1d north grid cell edge (deg)
     real(r8)          :: rlonw(this%nlon)                 ! longitude of 1d west grid cell edge (deg)
     real(r8)          :: rlone(this%nlon)                 ! longitude of 1d east grid cell edge (deg)
-    real(r8)          :: larea                            ! tmp local sum of area
+    real(r8)          :: larea(1)                         ! tmp local sum of area
+    real(r8)          :: totarea(1)                       ! tmp total area
     real(r8)          :: deg2rad                          ! pi/180
     integer           :: g, n, i, j, nr, nt               ! iterators
     real(r8)          :: edgen                            ! North edge of the direction file
@@ -312,9 +352,8 @@ contains
          this%qgwl(begr:endr,ntracers),       &
          this%qirrig(begr:endr),              &
          this%qirrig_actual(begr:endr),       &
-         !
-         this%zwt(begr:endr),                 &
-         this%slope(begr:endr),               &
+         this%qglc_liq(begr:endr),            &
+         this%qglc_ice(begr:endr),            &
          !
          this%evel(begr:endr,ntracers),       &
          this%flow(begr:endr,ntracers),       &
@@ -323,6 +362,7 @@ contains
          this%erlat_avg(begr:endr,ntracers),  &
          !
          this%effvel(ntracers),               &
+         this%direct_glc(begr:endr,2), &
          stat=ier)
     if (ier /= 0) then
        write(iulog,*)'mosarart_control_type allocation error'
@@ -341,16 +381,17 @@ contains
     this%direct(:,:)      = 0._r8
     this%qirrig(:)        = 0._r8
     this%qirrig_actual(:) = 0._r8
-    this%zwt(:)           = 0._r8
-    this%slope(:)         = 0._r8
     this%qsur(:,:)        = 0._r8
     this%qsub(:,:)        = 0._r8
     this%qgwl(:,:)        = 0._r8
+    this%qglc_liq(:)      = 0._r8
+    this%qglc_ice(:)      = 0._r8
     this%fthresh(:)       = abs(spval)
     this%flow(:,:)        = 0._r8
     this%erout_prev(:,:)  = 0._r8
     this%eroutup_avg(:,:) = 0._r8
     this%erlat_avg(:,:)   = 0._r8
+    this%direct_glc(:,:)  = 0._r8
 
     this%effvel(:) = effvel0  ! downstream velocity (m/s)
     do nt = 1,ntracers
@@ -368,15 +409,19 @@ contains
        this%area(nr) = area_global(n)
     enddo
 
-    larea = 0.0_r8
+    larea(1) = 0.0_r8
     do nr = begr,endr
-       larea = larea + this%area(nr)
+       larea(1) = larea(1) + this%area(nr)
     end do
     if (minval(this%mask) < 1) then
        write(iulog,*) subname,'ERROR this mask lt 1 ',minval(this%mask),maxval(this%mask)
        call shr_sys_abort(subname//' ERROR this mask')
     endif
-    call shr_mpi_sum(larea, this%totarea, mpicom_rof, 'mosart totarea', all=.true.)
+
+    call ESMF_VMAllReduce(vm, larea, totarea, 1, ESMF_REDUCE_SUM, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    this%totarea = totarea(1)
+
     if (mainproc) then
        write(iulog,*) subname,'  earth area ',4.0_r8*shr_const_pi*1.0e6_r8*re*re
        write(iulog,*) subname,' mosart area ',this%totarea
@@ -437,7 +482,6 @@ contains
     integer, pointer           :: halo_list(:)
     integer, pointer           :: seqlist(:)
     integer, allocatable       :: store_halo_index(:)
-    integer                    :: nglob
     character(len=*),parameter :: subname = '(mosart_control_type: init_decomp) '
     !-----------------------------------------------------------------------
 
@@ -856,13 +900,13 @@ contains
        halo_list(1:num_halo) = store_halo_index(1:num_halo)
 
        ! Create halo route handle using predefined allocatable memory
-       allocate(this%halo_arrayptr(endr-begr+1+num_halo))
-       this%halo_arrayptr(:) = 0.
-       this%halo_array = ESMF_ArrayCreate(this%distgrid, this%halo_arrayptr, haloSeqIndexList=halo_list, rc=rc)
+       allocate(this%fld_halo_arrayptr(endr-begr+1+num_halo))
+       this%fld_halo_arrayptr(:) = 0.
+       this%fld_halo_array = ESMF_ArrayCreate(this%distgrid, this%fld_halo_arrayptr, haloSeqIndexList=halo_list, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        ! Create a halo route handle - only need one
-       call ESMF_ArrayHaloStore(this%halo_array, routehandle=this%haloHandle, rc=rc)
+       call ESMF_ArrayHaloStore(this%fld_halo_array, routehandle=this%haloHandle, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        ! Create ESMF arrays for lon, lat and fld
@@ -886,12 +930,6 @@ contains
        call ESMF_ArrayHalo(this%lon_halo_array, routehandle=this%haloHandle, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        call ESMF_ArrayHalo(this%lat_halo_array, routehandle=this%haloHandle, rc=rc)
-       if (chkerr(rc,__LINE__,u_FILE_u)) return
-
-       ! Create ESMF array for zwt - this will be time dependent
-       allocate(this%zwt_halo_arrayptr(endr-begr+1+num_halo))
-       this%zwt_halo_arrayptr(:) = 0.
-       this%zwt_halo_array = ESMF_ArrayCreate(this%distgrid, this%zwt_halo_arrayptr, haloSeqIndexList=halo_list, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        ! Deallocate memory
@@ -1030,10 +1068,10 @@ contains
     n = 0
     do nr = this%begr,this%endr
        n = n + 1
-       this%halo_arrayptr(n) = this%latc(nr)*10. + this%lonc(nr)/100.
+       this%fld_halo_arrayptr(n) = this%latc(nr)*10. + this%lonc(nr)/100.
     end do
 
-    call ESMF_ArrayHalo(this%halo_array, routehandle=this%haloHandle, rc=rc)
+    call ESMF_ArrayHalo(this%fld_halo_array, routehandle=this%haloHandle, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
 
     n = 0
@@ -1065,42 +1103,42 @@ contains
        end if
        lon = this%rlon(i)
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_sw))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_sw))
        valid_value = lat_m1*10 + lon_m1/100.
        if (halo_value /= valid_value) then
           write(6,'(a,2f20.10)')'ERROR: halo, valid not the same = ',halo_value, valid_value
           call shr_sys_abort('ERROR: invalid halo')
        end if
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_s))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_s))
        valid_value = lat_m1*10 + lon/100.
        if (halo_value /= valid_value) then
           write(6,'(a,2f20.10)')'ERROR: halo, valid not the same = ',halo_value, valid_value
           call shr_sys_abort('ERROR: invalid halo')
        end if
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_se))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_se))
        valid_value = lat_m1*10 + lon_p1/100.
        if (halo_value /= valid_value) then
           write(6,'(a,2f20.10)')'ERROR: halo, valid not the same = ',halo_value, valid_value
           call shr_sys_abort('ERROR: invalid halo')
        end if
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_e))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_e))
        valid_value = lat*10 + lon_p1/100.
        if (halo_value /= valid_value) then
           write(6,'(a,2f20.10)')'ERROR: halo, valid not the same = ',halo_value, valid_value
           call shr_sys_abort('ERROR: invalid halo')
        end if
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_ne))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_ne))
        valid_value = lat_p1*10 + lon_p1/100.
        if (halo_value /= valid_value) then
           write(6,'(a,2f20.10)')'ERROR: halo, valid not the same = ',halo_value, valid_value
           call shr_sys_abort('ERROR: invalid halo')
        end if
        !
-       halo_value = this%halo_arrayptr(this%halo_arrayptr_index(n,halo_nw))
+       halo_value = this%fld_halo_arrayptr(this%halo_arrayptr_index(n,halo_nw))
        valid_value = lat_p1*10 + lon_m1/100.
        if (halo_value /= valid_value) then
           write(6,*)'ERROR: halo, valid not the same = ',halo_value, valid_value
@@ -1114,25 +1152,26 @@ contains
 
   subroutine calc_gradient(this, fld, fld_halo_array, dfld_dx, dfld_dy, rc)
 
-    ! Calculate head gradient from nine gridcells (center and surrounding)
+    ! Calculate gradient from nine gridcells (center and surrounding)
+
+    ! Uses
 
     ! Arguments:
     class(control_type)   :: this
     real(r8), intent(in)  :: fld(this%begr:this%endr)
     type(ESMF_Array)      :: fld_halo_array
-    real(r8), intent(out) :: dfld_dx(:)           ! gradient x component
-    real(r8), intent(out) :: dfld_dy(:)           ! gradient y component
+    real(r8), intent(out) :: dfld_dx(:)      ! gradient x component
+    real(r8), intent(out) :: dfld_dy(:)      ! gradient y component
     integer , intent(out) :: rc
 
     ! Local variables
-    integer  :: i, m, n, nr               ! local indices
+    integer  :: i, n, nr               ! local indices
     real(r8) :: deg2rad
     real(r8) :: mean_dx, mean_dy, dlon, dlat
-    real(r8) :: ax_indices(4) = (/2,3,3,4/) ! x indices to add
-    real(r8) :: sx_indices(4) = (/6,7,7,8/) ! x indices to subtract
-    real(r8) :: ay_indices(4) = (/1,1,2,8/) ! y indices to add
-    real(r8) :: sy_indices(4) = (/2,5,5,6/) ! y indices to subtract
-    integer  :: surrounding_pts(max_num_halo)
+    integer  :: ax_indices(4)                 ! x indices to add
+    integer  :: sx_indices(4)                 ! x indices to subtract
+    integer  :: ay_indices(4)                 ! y indices to add
+    integer  :: sy_indices(4)                 ! y indices to subtract
     real(r8) :: fld_surrounding(max_num_halo)
     real(r8) :: dx(max_num_halo)
     real(r8) :: dy(max_num_halo)
@@ -1140,15 +1179,18 @@ contains
     real(r8), pointer :: fld_halo_arrayptr(:)
     !-----------------------------------------------------------------------
 
-    call t_startf('gw_gradient')
+    call t_startf('gradient')
 
     rc = ESMF_SUCCESS
 
-    ! Define order of surround points (clockwise starting at north)
-    surrounding_pts(:) = (/halo_n, halo_ne, halo_e, halo_se, halo_s, halo_sw, halo_w, halo_nw/)
+    ! Define indices for addition/subtraction
+    ax_indices(:) = (/halo_ne,halo_e,halo_e,halo_se/) ! x indices to add
+    sx_indices(:) = (/halo_nw,halo_w,halo_w,halo_sw/) ! x indices to subtract
+    ay_indices(:) = (/halo_ne,halo_n,halo_n,halo_nw/) ! y indices to add
+    sy_indices(:) = (/halo_se,halo_s,halo_s,halo_sw/) ! y indices to subtract
 
     ! degrees to radians
-    deg2rad = SHR_CONST_PI / 180._r8
+    deg2rad = shr_const_pi / 180._r8
 
     ! Get pointer to data in ESMF array
     call ESMF_ArrayGet(fld_halo_array, farrayPtr=fld_halo_arrayptr, rc=rc)
@@ -1173,13 +1215,12 @@ contains
 
        ! extract neighbors from halo array
        do i = 1,max_num_halo
-          m = surrounding_pts(i)
-          index = this%halo_arrayptr_index(n,m)
+          index = this%halo_arrayptr_index(n,i)
           fld_surrounding(i) = fld_halo_arrayptr(index)
           dlon = (this%lon_halo_arrayptr(n) - this%lon_halo_arrayptr(index))
           dlat = (this%lat_halo_arrayptr(n) - this%lat_halo_arrayptr(index))
-          dx(i) = SHR_CONST_REARTH * abs(dlon) * cos(deg2rad*this%latc(nr))
-          dy(i) = SHR_CONST_REARTH * abs(dlat)
+          dx(i) = shr_const_rearth * abs(deg2rad*dlon) * cos(deg2rad*this%latc(nr))
+          dy(i) = shr_const_rearth * abs(deg2rad*dlat)
        enddo
 
        ! calculate mean spacing
@@ -1187,12 +1228,19 @@ contains
        mean_dy = 0.5_r8 * (dy(halo_s)+dy(halo_n)) ! average dy south and north
 
        ! compute gradient values
+       ! for x gradient sum [NE,2xE,SE,-NW,-2xW,-SW]
+       ! for y gradient sum [NE,2xN,NW,-SE,-2xS,-SW]
        do i = 1,4
-          dfld_dx(n) = (fld_surrounding(ax_indices(i)) - fld_surrounding(sx_indices(i))) / (8._r8*mean_dx)
-          dfld_dy(n) = (fld_surrounding(ay_indices(i)) - fld_surrounding(sy_indices(i))) / (8._r8*mean_dy)
+          dfld_dx(n) = dfld_dx(n) + (fld_surrounding(ax_indices(i)) - fld_surrounding(sx_indices(i)))
+          dfld_dy(n) = dfld_dy(n) + (fld_surrounding(ay_indices(i)) - fld_surrounding(sy_indices(i)))
        enddo
 
+       dfld_dx(n) = dfld_dx(n) / (8._r8*mean_dx)
+       dfld_dy(n) = dfld_dy(n) / (8._r8*mean_dy)
+
     enddo ! end of nr loop
+
+    call t_stopf('gradient')
 
   end subroutine calc_gradient
 

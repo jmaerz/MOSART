@@ -10,7 +10,7 @@ module mosart_physics
    use shr_kind_mod      , only : r8 => shr_kind_r8
    use shr_const_mod     , only : SHR_CONST_REARTH, SHR_CONST_PI
    use shr_sys_mod       , only : shr_sys_abort
-   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof
+   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof, bypass_routing_option
    use mosart_data       , only : Tctl, TUnit, TRunoff, TPara, ctl
    use perf_mod          , only : t_startf, t_stopf
    use nuopc_shr_methods , only : chkerr
@@ -28,8 +28,18 @@ module mosart_physics
    public :: subnetworkrouting
    public :: mainchannelrouting
 
+   private :: Routing_KW
+   private :: CRVRMAN_nosqrt
+   private :: CREHT_nosqrt
+   private :: GRMR
+   private :: GRHT
+   private :: GRPT
+   private :: GRRR
+   private :: GRPR
+
    real(r8), parameter :: TINYVALUE = 1.0e-14_r8 ! double precision variable has a significance of about 16 decimal digits
    real(r8), parameter :: SLOPE1def = 0.1_r8     ! here give it a small value in order to avoid the abrupt change of hydraulic radidus etc.
+   real(r8)            :: sinatanSLOPE1defr      ! 1.0/sin(atan(slope1))
 
    character(*), parameter :: u_FILE_u = &
         __FILE__
@@ -269,14 +279,8 @@ contains
 
       if(Tctl%RoutingMethod == 1) then
          call Routing_KW(nr, nt, theDeltaT)
-      else if(Tctl%RoutingMethod == 2) then
-         call Routing_MC(nr, nt, theDeltaT)
-      else if(Tctl%RoutingMethod == 3) then
-         call Routing_THREW(nr, nt, theDeltaT)
-      else if(Tctl%RoutingMethod == 4) then
-         call Routing_DW(nr, nt, theDeltaT)
       else
-         call shr_sys_abort( "mosart: Please check the routing method! There are only 4 methods available." )
+         call shr_sys_abort( "mosart: Please check the routing method! There is only 1 method currently available." )
       end if
 
    end subroutine mainchannelRouting
@@ -322,7 +326,7 @@ contains
 
       TRunoff%dwr(nr,nt) = TRunoff%erlateral(nr,nt) + TRunoff%erin(nr,nt) + TRunoff%erout(nr,nt) + temp_gwl
 
-      if ((TRunoff%wr(nr,nt)/theDeltaT + TRunoff%dwr(nr,nt)) < -TINYVALUE) then
+      if ((TRunoff%wr(nr,nt)/theDeltaT + TRunoff%dwr(nr,nt)) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
          write(iulog,*) 'mosart: ERROR main channel going negative: ', nr, nt
          write(iulog,*) theDeltaT, TRunoff%wr(nr,nt), TRunoff%wr(nr,nt)/theDeltaT, TRunoff%dwr(nr,nt), temp_gwl
          write(iulog,*) ' '
@@ -341,39 +345,6 @@ contains
       !    end if
 
    end subroutine Routing_KW
-
-   !-----------------------------------------------------------------------
-
-   subroutine Routing_MC(nr, nt, theDeltaT)
-      !  Muskingum-Cunge routing method
-
-      ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
-
-   end subroutine Routing_MC
-
-   !-----------------------------------------------------------------------
-
-   subroutine Routing_THREW(nr, nt, theDeltaT)
-      !  kinematic wave routing method from THREW model
-
-      ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
-
-   end subroutine Routing_THREW
-
-   !-----------------------------------------------------------------------
-
-   subroutine Routing_DW(nr, nt, theDeltaT)
-      !  classic diffusion wave routing method
-
-      ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
-
-   end subroutine Routing_DW
 
    !-----------------------------------------------------------------------
 
@@ -575,13 +546,12 @@ contains
       ! Local variables
       real(r8) :: SLOPE1  ! slope of flood plain, TO DO
       real(r8) :: deltahr_
-      real(r8) :: sinatanSLOPE1defr      ! 1.0/sin(atan(slope1))
       logical, save :: first_call = .true.
 
       SLOPE1 = SLOPE1def
-!scs      if (first_call) then
+      if (first_call) then
          sinatanSLOPE1defr = 1.0_r8/(sin(atan(SLOPE1def)))
-!scs      endif
+      endif
       first_call = .false.
 
       if(hr_ < TINYVALUE) then

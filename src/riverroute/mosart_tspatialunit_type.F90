@@ -24,9 +24,6 @@ module mosart_tspatialunit_type
      ! euler computation
      logical , pointer :: euler_calc(:) ! flag for calculating tracers in euler
 
-     ! frozen water runoff index
-     integer :: nice
-
      ! grid properties
      integer , pointer :: mask(:)      ! mosart mask of mosart cell, 0=null, 1=land with dnID, 2=outlet
      integer , pointer :: ID0(:)
@@ -143,11 +140,8 @@ contains
       call pio_initdecomp(pio_subsystem, pio_double, dsizes, compDOF, iodesc_dbl)
       call pio_initdecomp(pio_subsystem, pio_int   , dsizes, compDOF, iodesc_int)
 
-      ! Set ice index
-      this%nice = ntracers
-
       ! For now assume that frozen runoff is the last tracer
-      ! set euler_calc = false for frozen runoff
+      ! set euler_calc = false for frozen runoff - all otohers are true
       allocate(this%euler_calc(ntracers))
       do n = 1,ntracers
          if (n < ntracers) then
