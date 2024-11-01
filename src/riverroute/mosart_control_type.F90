@@ -27,9 +27,11 @@ module mosart_control_type
      integer :: nlat = -999                          ! number of latitudes
 
      ! tracers
-     integer :: ntracers = -999                      ! number of tracers
-     character(len=3), allocatable :: tracer_names(:)! tracer names
-     integer :: nt_liq                               ! index of liquid water tracer in tracer_names
+     integer :: ntracers_tot = -999                  ! number of total tracers
+     integer :: ntracers_liq = -999                  ! number of liquid tracers
+     integer :: ntracers_nonh2o = 0                  ! number of liquid non-water tracers from land
+     character(len=CS), allocatable :: tracer_names(:)! tracer names from land
+     integer :: nt_liq                               ! index of liquid water tracers in tracer_names
      integer :: nt_ice                               ! index of ice tracer in tracer_names
      logical :: rof_from_glc                         ! if true, will receive liq and ice runoff from glc
 
@@ -51,12 +53,14 @@ module mosart_control_type
      real(r8)          :: totarea                    ! global area
 
      ! inputs to MOSART
-     real(r8), pointer :: qsur(:,:) => null()        ! surface runoff from coupler [m3/s] (lnd)
-     real(r8), pointer :: qsub(:,:) => null()        ! subsurfacer runoff from coupler [m3/s] (lnd)
-     real(r8), pointer :: qgwl(:,:) => null()        ! glacier/wetland/lake runoff from coupler [m3/s] (lnd)
-     real(r8), pointer :: qirrig(:) => null()        ! irrigation flow from coupler [m3/s]
-     real(r8), pointer :: qglc_liq(:) => null()      ! glacier liquid runoff from coupler [m3/s] (glc)
-     real(r8), pointer :: qglc_ice(:) => null()      ! glacier ice runoff from coupler [m3/s] (glc)
+     real(r8), pointer :: qsur_liq(:) => null()          ! surface liquid water runoff from lnd [m3/s]
+     real(r8), pointer :: qsur_ice(:) => null()          ! surface ice runoff from lnd [m3/s]
+     real(r8), pointer :: qsur_liq_nonh2o(:,:) => null() ! surface runoff from lnd for non-water liquid tracers [m3/s]
+     real(r8), pointer :: qsub_liq(:) => null()          ! subsurfacer runoff from lnd [m3/s]
+     real(r8), pointer :: qgwl_liq(:) => null()          ! glacier/wetland/lake runoff from lnd [m3/s]
+     real(r8), pointer :: qirrig_liq(:) => null()        ! irrigation flow from lnd [m3/s]
+     real(r8), pointer :: qglc_liq(:) => null()          ! glacier liquid runoff from glc [m3/s]
+     real(r8), pointer :: qglc_ice(:) => null()          ! glacier ice runoff from glc [m3/s]
 
      ! outputs from MOSART
      real(r8), pointer :: flood(:) => null()         ! flood water to coupler [m3/s] (lnd)
@@ -133,39 +137,42 @@ module mosart_control_type
 contains
 !========================================================================
 
-  subroutine init_tracer_names(this)
+  subroutine init_tracer_names(this, lnd2rof_tracers)
 
     ! Set indices for liquid water and ice runoff as well as additional tracers.
 
     ! Arguments
     class(control_type) :: this
+    character(len=*), intent(in) :: lnd2rof_tracers
 
     ! Local variables
     integer :: nt           ! tracer index
-    integer :: ntracers     ! total number of tracers
-    integer :: nliq_tracers ! number of liquid tracers (including non-water tracers)
     character(len=*),parameter :: subname = '(mosart_control_type: init_tracer_names)'
     !-----------------------------------------------------------------------
 
-    ! lnd2rof liquid tracers (liquid tracers OTHER than water)
-    call shr_lnd2rof_tracers_readnl('drv_flds_in', lnd2rof_tracers)
-
     ! Determine number of tracers and array of tracer names
-    nliq_tracers = shr_string_listGetNum(lnd2rof_tracers) + 1 ! extra 1 for liquid water
-    this%ntracers = nliq_tracers + 1 ! extra 1 for ice
-    ntracers = this%ntracers
+    if (lnd2rof_tracers /= ' ') then
+       this%ntracers_nonh2o = shr_string_listGetNum(lnd2rof_tracers)
+    else
+       this%ntracers_nonh2o = 0
+    end if
+    this%ntracers_tot = this%ntracers_nonh2o + 2 ! extra 1 for liquid water and ice
 
-    allocate(this%tracer_names(ntracers))
-    this%tracer_names(1) = 'LIQ'
-    this%tracer_names(ntracers) = 'ICE'
-    do nt = 2,nliq_tracers
-      ! Note that i-1 is the index in the string - since it refers only to non-water tracers
-      call shr_string_listGetName(lnd2rof_tracers, nt-1, this%tracer_names(nt))
-    end do
+    allocate(this%tracer_names(this%ntracers_tot))
 
     ! Hardwire tracer indices for liquid water and ice
-    this%nt_liq = 1             ! liquid water
-    this%nt_ice = this%ntracers ! ice
+    this%nt_liq = 1 ! liquid water
+    this%nt_ice = 2 ! ice
+
+    this%tracer_names(this%nt_liq) = 'LIQ'
+    this%tracer_names(this%nt_ice) = 'ICE'
+
+    ! names of non-water liquid tracers
+    do nt = 1,this%ntracers_nonh2o
+      ! Below use nt+2 since the lnd2rof_tracers are only non-water
+      ! liquid tracers and liquid water is the first tracer and ice is the second tracer
+      call shr_string_listGetName(lnd2rof_tracers, nt, this%tracer_names(nt+2))
+    end do
 
   end subroutine init_tracer_names
 
@@ -202,7 +209,8 @@ contains
     integer           :: ntracers                         ! used to simplify code
     integer           :: ier                              ! error status
     integer           :: begr, endr                       ! used to simplify code
-    integer           :: nlon,nlat
+    integer           :: nlon,nlat                        ! used to simplify code
+    integer           :: ntracers_nonh2o                  ! used to simplify code
     real(r8)          :: effvel0 = 10.0_r8                ! default velocity (m/s)
     character(len=*),parameter :: subname = '(mosart_control_type: Init)'
     !-----------------------------------------------------------------------
@@ -329,31 +337,36 @@ contains
 
     begr = this%begr
     endr = this%endr
-    ntracers = this%ntracers
+    ntracers = this%ntracers_tot
+    ntracers_nonh2o = this%ntracers_nonh2o
 
-    allocate(this%area(begr:endr),            &
-         !
+    allocate(&
+         ! grid
+         this%area(begr:endr),            &
          this%volr(begr:endr,ntracers),       &
          this%dvolrdt(begr:endr,ntracers),    &
          this%dvolrdtlnd(begr:endr,ntracers), &
          this%dvolrdtocn(begr:endr,ntracers), &
          !
-         this%runoff(begr:endr,ntracers),     &
          this%runofflnd(begr:endr,ntracers),  &
          this%runoffocn(begr:endr,ntracers),  &
          this%runofftot(begr:endr,ntracers),  &
-         !
          this%fthresh(begr:endr),             &
-         this%flood(begr:endr),               &
-         !
-         this%direct(begr:endr,ntracers),     &
-         this%qsur(begr:endr,ntracers),       &
-         this%qsub(begr:endr,ntracers),       &
-         this%qgwl(begr:endr,ntracers),       &
-         this%qirrig(begr:endr),              &
-         this%qirrig_actual(begr:endr),       &
+         ! input
+         this%qsur_liq(begr:endr),            &
+         this%qsur_liq_nonh2o(begr:endr,ntracers_nonh2o),&
+         this%qsur_ice(begr:endr),            &
+         this%qsub_liq(begr:endr),            &
+         this%qgwl_liq(begr:endr),            &
          this%qglc_liq(begr:endr),            &
          this%qglc_ice(begr:endr),            &
+         this%qirrig_liq(begr:endr),          &
+         ! output
+         this%flood(begr:endr),               &
+         this%runoff(begr:endr,ntracers),     &
+         this%qirrig_actual(begr:endr),       &
+         this%direct(begr:endr,ntracers),     &
+         this%direct_glc(begr:endr,2),        &
          !
          this%evel(begr:endr,ntracers),       &
          this%flow(begr:endr,ntracers),       &
@@ -362,36 +375,37 @@ contains
          this%erlat_avg(begr:endr,ntracers),  &
          !
          this%effvel(ntracers),               &
-         this%direct_glc(begr:endr,2), &
          stat=ier)
     if (ier /= 0) then
        write(iulog,*)'mosarart_control_type allocation error'
        call shr_sys_abort
     end if
 
-    this%runoff(:,:)      = 0._r8
-    this%runofflnd(:,:)   = spval
-    this%runoffocn(:,:)   = spval
-    this%runofftot(:,:)   = spval
-    this%dvolrdt(:,:)     = 0._r8
-    this%dvolrdtlnd(:,:)  = spval
-    this%dvolrdtocn(:,:)  = spval
-    this%volr(:,:)        = 0._r8
-    this%flood(:)         = 0._r8
-    this%direct(:,:)      = 0._r8
-    this%qirrig(:)        = 0._r8
-    this%qirrig_actual(:) = 0._r8
-    this%qsur(:,:)        = 0._r8
-    this%qsub(:,:)        = 0._r8
-    this%qgwl(:,:)        = 0._r8
-    this%qglc_liq(:)      = 0._r8
-    this%qglc_ice(:)      = 0._r8
-    this%fthresh(:)       = abs(spval)
-    this%flow(:,:)        = 0._r8
-    this%erout_prev(:,:)  = 0._r8
-    this%eroutup_avg(:,:) = 0._r8
-    this%erlat_avg(:,:)   = 0._r8
-    this%direct_glc(:,:)  = 0._r8
+    this%runoff(:,:)          = 0._r8
+    this%runofflnd(:,:)       = spval
+    this%runoffocn(:,:)       = spval
+    this%runofftot(:,:)       = spval
+    this%dvolrdt(:,:)         = 0._r8
+    this%dvolrdtlnd(:,:)      = spval
+    this%dvolrdtocn(:,:)      = spval
+    this%volr(:,:)            = 0._r8
+    this%flood(:)             = 0._r8
+    this%direct(:,:)          = 0._r8
+    this%qirrig_liq(:)        = 0._r8
+    this%qirrig_actual(:)     = 0._r8
+    this%qsur_ice(:)          = 0._r8
+    this%qsur_liq(:)          = 0._r8
+    this%qsur_liq_nonh2o(:,:) = 0._r8
+    this%qsub_liq(:)          = 0._r8
+    this%qgwl_liq(:)          = 0._r8
+    this%qglc_liq(:)          = 0._r8
+    this%qglc_ice(:)          = 0._r8
+    this%fthresh(:)           = abs(spval)
+    this%flow(:,:)            = 0._r8
+    this%erout_prev(:,:)      = 0._r8
+    this%eroutup_avg(:,:)     = 0._r8
+    this%erlat_avg(:,:)       = 0._r8
+    this%direct_glc(:,:)      = 0._r8
 
     this%effvel(:) = effvel0  ! downstream velocity (m/s)
     do nt = 1,ntracers

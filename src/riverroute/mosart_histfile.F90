@@ -372,10 +372,10 @@ contains
 
          if (mainproc) then
             if (tape(t)%nflds > 0) then
-               write(iulog,*) trim(subname),' : Included fields tape ',t,'=',tape(t)%nflds
+               write(iulog,'(a,i6,a,i6)') trim(subname)//' : Included fields tape ',t,' = ',tape(t)%nflds
             end if
             do f = 1,tape(t)%nflds
-               write(iulog,*) f,' ',tape(t)%hlist(f)%field%name,' ',tape(t)%hlist(f)%avgflag
+               write(iulog,'(i6,a)') f,' '//tape(t)%hlist(f)%field%name//' '//tape(t)%hlist(f)%avgflag
             end do
          end if
       end do
@@ -413,12 +413,12 @@ contains
          do t=1,ntapes
             write(iulog,*)
             if (nhtfrq(t) == 0) then
-               write(iulog,*)'MOSART History tape ',t,' write frequency is MONTHLY'
+               write(iulog,'(a,i6,a)')' MOSART History tape ',t,' write frequency is MONTHLY'
             else
-               write(iulog,*)'MOSART History tape ',t,' write frequency = ',nhtfrq(t)
+               write(iulog,'(a,i6,a,i4)')' MOSART History tape ',t,' write frequency = ',nhtfrq(t)
             endif
-            write(iulog,*)'Number of time samples on MOSART history tape ',t,' is ',mfilt(t)
-            write(iulog,*)'Output precision on MOSART history tape ',t,'=',ndens(t)
+            write(iulog,'(a,i6,a,i4)')' Number of time samples on MOSART history tape ',t,' is ',mfilt(t)
+            write(iulog,'(a,i6,a,i4)')' Output precision on MOSART history tape ',t,'=',ndens(t)
             write(iulog,*)
          end do
       end if
@@ -442,7 +442,7 @@ contains
       character(len=1), intent(in) :: avgflag  ! time averaging flag
 
       ! !LOCAL VARIABLES:
-      integer :: n               ! field index on defined tape
+      integer :: n             ! field index on defined tape
       integer :: begr          ! per-proc beginning land runoff index
       integer :: endr          ! per-proc ending land runoff index
       character(len=*),parameter :: subname = 'htape_addfld'

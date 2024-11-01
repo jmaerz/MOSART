@@ -69,9 +69,9 @@ contains
       rc = ESMF_SUCCESS
 
       call t_startf('mosartr_hillslope')
-      do nt=1,ctl%ntracers
+      do nt = 1,ctl%ntracers_tot
          if (TUnit%euler_calc(nt)) then
-            do nr=ctl%begr,ctl%endr
+            do nr = ctl%begr,ctl%endr
                if(TUnit%mask(nr) > 0) then
                   call hillslopeRouting(nr,nt,Tctl%DeltaT)
                   TRunoff%wh(nr,nt) = TRunoff%wh(nr,nt) + TRunoff%dwh(nr,nt) * Tctl%DeltaT
@@ -99,7 +99,7 @@ contains
       do m=1,Tctl%DLevelH2R
 
          ! accumulate/average erout at prior timestep (used in eroutUp calc) for budget analysis
-         do nt=1,ctl%ntracers
+         do nt=1,ctl%ntracers_tot
             if (TUnit%euler_calc(nt)) then
                do nr=ctl%begr,ctl%endr
                   TRunoff%erout_prev(nr,nt) = TRunoff%erout_prev(nr,nt) + TRunoff%erout(nr,nt)
@@ -113,12 +113,12 @@ contains
 
          call t_startf('mosartr_subnetwork')
          TRunoff%erlateral(:,:) = 0._r8
-         do nt=1,ctl%ntracers
+         do nt = 1,ctl%ntracers_tot
             if (TUnit%euler_calc(nt)) then
-               do nr=ctl%begr,ctl%endr
+               do nr = ctl%begr,ctl%endr
                   if(TUnit%mask(nr) > 0) then
                      localDeltaT = Tctl%DeltaT/Tctl%DLevelH2R/TUnit%numDT_t(nr)
-                     do k=1,TUnit%numDT_t(nr)
+                     do k = 1,TUnit%numDT_t(nr)
                         call subnetworkRouting(nr,nt,localDeltaT)
                         TRunoff%wt(nr,nt) = TRunoff%wt(nr,nt) + TRunoff%dwt(nr,nt) * localDeltaT
                         call UpdateState_subnetwork(nr,nt)
@@ -149,7 +149,7 @@ contains
          cnt = 0
          do nr = ctl%begr,ctl%endr
             cnt = cnt + 1
-            do nt = 1,ctl%ntracers
+            do nt = 1,ctl%ntracers_tot
                src_eroutUp(nt,cnt) = TRunoff%erout(nr,nt)
             enddo
          enddo
@@ -162,7 +162,7 @@ contains
          cnt = 0
          do nr = ctl%begr,ctl%endr
             cnt = cnt + 1
-            do nt = 1,ctl%ntracers
+            do nt = 1,ctl%ntracers_tot
                TRunoff%eroutUp(nr,nt) = dst_eroutUp(nt,cnt)
             enddo
          enddo
@@ -177,7 +177,7 @@ contains
          !------------------
 
          call t_startf('mosartr_chanroute')
-         do nt=1,ctl%ntracers
+         do nt=1,ctl%ntracers_tot
             if (TUnit%euler_calc(nt)) then
                do nr=ctl%begr,ctl%endr
                   if(TUnit%mask(nr) > 0) then

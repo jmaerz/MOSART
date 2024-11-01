@@ -4,32 +4,33 @@ module mosart_driver
    ! Mosart Routing Model
    !-----------------------------------------------------------------------
 
-   use shr_kind_mod       , only : r8 => shr_kind_r8, CS => shr_kind_cs, CL => shr_kind_CL
-   use shr_sys_mod        , only : shr_sys_abort
-   use shr_const_mod      , only : SHR_CONST_PI, SHR_CONST_CDAY
-   use mosart_vars        , only : re, spval, iulog, ice_runoff, &
-                                   frivinp, nsrContinue, nsrBranch, nsrStartup, nsrest, &
-                                   inst_index, inst_suffix, inst_name, decomp_option, &
-                                   bypass_routing_option, qgwl_runoff_option, barrier_timers, &
-                                   mainproc, npes, iam, mpicom_rof, budget_frq, isecspday
-   use mosart_data        , only : ctl, Tctl, Tunit, TRunoff, Tpara
-   use mosart_budget_type , only : budget_type
-   use mosart_fileutils   , only : getfil
-   use mosart_timemanager , only : timemgr_init, get_nstep, get_curr_date
-   use mosart_histflds    , only : mosart_histflds_init, mosart_histflds_set
-   use mosart_histfile    , only : mosart_hist_updatehbuf, mosart_hist_htapeswrapup, mosart_hist_htapesbuild, &
-                                   ndens, mfilt, nhtfrq, avgflag_pertape, avgflag_pertape, &
-                                   fincl1, fincl2, fincl3, fexcl1, fexcl2, fexcl3, max_tapes, max_namlen
-   use mosart_restfile    , only : mosart_rest_timemanager, mosart_rest_getfile, mosart_rest_fileread, &
-                                   mosart_rest_filewrite, mosart_rest_filename, finidat, nrevsn
-   use mosart_physics     , only : updatestate_hillslope, updatestate_subnetwork, updatestate_mainchannel, Euler
-   use perf_mod           , only : t_startf, t_stopf
-   use nuopc_shr_methods  , only : chkerr
-   use ESMF               , only : ESMF_SUCCESS, ESMF_FieldGet, ESMF_FieldSMMStore, ESMF_FieldSMM, &
-                                   ESMF_TERMORDER_SRCSEQ, ESMF_Mesh
-   use mosart_io          , only : ncd_pio_openfile, ncd_inqdid, ncd_inqdlen, ncd_pio_closefile, ncd_decomp_init, &
-                                   pio_subsystem
-   use pio                , only : file_desc_t
+   use shr_kind_mod            , only : r8 => shr_kind_r8, CS => shr_kind_cs, CL => shr_kind_CL
+   use shr_sys_mod             , only : shr_sys_abort
+   use shr_const_mod           , only : SHR_CONST_PI, SHR_CONST_CDAY
+   use shr_lnd2rof_tracers_mod , only : shr_lnd2rof_tracers_readnl
+   use mosart_vars             , only : re, spval, iulog, ice_runoff, &
+                                        frivinp, nsrContinue, nsrBranch, nsrStartup, nsrest, &
+                                        inst_index, inst_suffix, inst_name, decomp_option, &
+                                        bypass_routing_option, qgwl_runoff_option, barrier_timers, &
+                                        mainproc, npes, iam, mpicom_rof, budget_frq, isecspday
+   use mosart_data             , only : ctl, Tctl, Tunit, TRunoff, Tpara
+   use mosart_budget_type      , only : budget_type
+   use mosart_fileutils        , only : getfil
+   use mosart_timemanager      , only : timemgr_init, get_nstep, get_curr_date
+   use mosart_histflds         , only : mosart_histflds_init, mosart_histflds_set
+   use mosart_histfile         , only : mosart_hist_updatehbuf, mosart_hist_htapeswrapup, mosart_hist_htapesbuild, &
+                                        ndens, mfilt, nhtfrq, avgflag_pertape, avgflag_pertape, &
+                                        fincl1, fincl2, fincl3, fexcl1, fexcl2, fexcl3, max_tapes, max_namlen
+   use mosart_restfile         , only : mosart_rest_timemanager, mosart_rest_getfile, mosart_rest_fileread, &
+                                        mosart_rest_filewrite, mosart_rest_filename, finidat, nrevsn
+   use mosart_physics          , only : updatestate_hillslope, updatestate_subnetwork, updatestate_mainchannel, Euler
+   use perf_mod                , only : t_startf, t_stopf
+   use nuopc_shr_methods       , only : chkerr
+   use ESMF                    , only : ESMF_SUCCESS, ESMF_FieldGet, ESMF_FieldSMMStore, ESMF_FieldSMM, &
+                                        ESMF_TERMORDER_SRCSEQ, ESMF_Mesh
+   use mosart_io               , only : ncd_pio_openfile, ncd_inqdid, ncd_inqdlen, ncd_pio_closefile, ncd_decomp_init, &
+                                        pio_subsystem
+   use pio                     , only : file_desc_t
    use mpi
 
    implicit none
@@ -77,8 +78,6 @@ contains
       integer           :: ier       ! error code
       integer           :: unitn     ! unit for namelist file
       logical           :: lexist    ! File exists
-      integer           :: nliq_tracers
-      integer           :: ntracers
       character(len=CS) :: runtyp(4) ! run type
       character(len=CS) :: liquid_extra_tracers
       character(len=CS) :: lnd2rof_tracers
@@ -104,6 +103,7 @@ contains
       bypass_routing_option = 'direct_in_place'
       qgwl_runoff_option = 'threshold'
       use_halo_option = .false.
+      lnd2rof_tracers = ' '
 
       nlfilename_rof = "mosart_in" // trim(inst_suffix)
       inquire (file = trim(nlfilename_rof), exist = lexist)
@@ -146,7 +146,12 @@ contains
       call mpi_bcast (avgflag_pertape, size(avgflag_pertape), MPI_CHARACTER, 0, mpicom_rof, ier)
       call mpi_bcast (budget_frq, 1, MPI_INTEGER, 0, mpicom_rof, ier)
 
-      call ctl%init_tracer_names()
+      ! lnd2rof liquid tracers (liquid tracers OTHER than water)
+      if (mainproc) then
+         write(iulog,'(a)') 'reading in non-water tracers from land (if any) in drv_flds_in '
+      end if
+      call shr_lnd2rof_tracers_readnl('drv_flds_in', lnd2rof_tracers)
+      call ctl%init_tracer_names(lnd2rof_tracers)
       nt_liq = ctl%nt_liq
       nt_ice = ctl%nt_ice
 
@@ -161,10 +166,10 @@ contains
          write(iulog,'(a,i8)') '   coupling_period         = ',coupling_period
          write(iulog,'(a,i8)') '   delt_mosart             = ',delt_mosart
          write(iulog,'(a)'   ) '   decomp option           = '//trim(decomp_option)
-         write(iulog,'(a,l)' ) '   use_halo_optoin         = ',use_halo_option
+         write(iulog,'(a,l1)') '   use_halo_optoin         = ',use_halo_option
          write(iulog,'(a)'   ) '   bypass_routing option   = '//trim(bypass_routing_option)
          write(iulog,'(a)'   ) '   qgwl runoff option      = '//trim(qgwl_runoff_option)
-         if (nliq_tracers == 1) then
+         if (ctl%ntracers_liq == 1) then
             write(iulog,'(a)'   ) '   non-water liquid  tracers = none'
          else
             write(iulog,'(a)'   ) '   non-water liquid  tracers = '//trim(lnd2rof_tracers)
@@ -257,10 +262,10 @@ contains
       !-------------------------------------------------------
       if (mainproc) then
          trstr = trim(ctl%tracer_names(1))
-         do n = 2,ctl%ntracers
+         do n = 2,ctl%ntracers_tot
             trstr = trim(trstr)//':'//trim(ctl%tracer_names(n))
          enddo
-         write(iulog,*)'mosart tracers = ',ctl%ntracers,trim(trstr)
+         write(iulog,*)'mosart tracers = ',ctl%ntracers_tot,trim(trstr)
       end if
 
       !-------------------------------------------------------
@@ -306,7 +311,7 @@ contains
       ! Local variables
       integer :: nr, nt
       integer :: begr, endr
-      integer :: ntracers
+      integer :: ntracers_tot
       character(len=*),parameter :: subname = '(mosart_init2)'
       !-----------------------------------------------------------------------
 
@@ -315,7 +320,7 @@ contains
       ! Set up local variables to be used below
       begr  = ctl%begr
       endr  = ctl%endr
-      ntracers = ctl%ntracers
+      ntracers_tot = ctl%ntracers_tot
 
       !-------------------------------------------------------
       ! Initialize MOSART types TCtl, Tpara, TUnit and Trunoff
@@ -325,9 +330,9 @@ contains
 
       call Tpara%Init(begr, endr)
 
-      call TRunoff%Init(begr, endr, ntracers)
+      call TRunoff%Init(begr, endr, ntracers_tot)
 
-      call Tunit%Init(begr, endr, ntracers, &
+      call Tunit%Init(begr, endr, ntracers_tot, ctl%nt_ice, &
            ctl%nlon, ctl%nlat, Emesh, trim(frivinp), IDKey, &
            Tpara%c_twid, Tctl%DLevelR, ctl%area, ctl%gindex, ctl%outletg, pio_subsystem, rc)
       if (chkerr(rc,__LINE__,u_FILE_u)) return
@@ -343,7 +348,7 @@ contains
          call mosart_rest_fileread( file=fnamer )
       endif
 
-      do nt = 1,ntracers
+      do nt = 1,ntracers_tot
          do nr = begr,endr
             call UpdateState_hillslope(nr,nt)
             call UpdateState_subnetwork(nr,nt)
@@ -358,11 +363,11 @@ contains
       !-------------------------------------------------------
 
       call t_startf('mosarti_histinit')
-      call mosart_histflds_init(begr, endr, ntracers)
+      call mosart_histflds_init()
       if (nsrest==nsrStartup .or. nsrest==nsrBranch) then
          call mosart_hist_HtapesBuild()
       end if
-      call mosart_histflds_set(ntracers)
+      call mosart_histflds_set()
       if (mainproc) write(iulog,*) subname,' done'
       call t_stopf('mosarti_histinit')
 
@@ -371,7 +376,7 @@ contains
       !-------------------------------------------------------
 
       call t_startf('mosarti_budgetinit')
-      call budget%Init(begr, endr, ntracers)
+      call budget%Init(begr, endr, ntracers_tot)
       call t_stopf('mosarti_budgetinit')
 
    end subroutine mosart_init2
@@ -460,16 +465,25 @@ contains
       endif
       if (budget_check) then
         call t_startf('mosartr_budgetset')
-        call  budget%set_budget(begr,endr,ntracers, delt_coupling)
+        call budget%set_budget(begr,endr,ntracers, delt_coupling)
         call t_stopf('mosartr_budgetset')
       endif
 
-      ! initialize data for euler solver, in m3/s here
+      !-----------------------------------
+      ! initialize data for liquid transport via euler solver, in m3/s here
+      !-----------------------------------
+
       do nr = begr,endr
-         do nt = 1,ntracers
-            TRunoff%qsur(nr,nt) = ctl%qsur(nr,nt)
-            TRunoff%qsub(nr,nt) = ctl%qsub(nr,nt)
-            TRunoff%qgwl(nr,nt) = ctl%qgwl(nr,nt)
+         TRunoff%qsur(nr,nt_liq) = ctl%qsur_liq(nr)
+         TRunoff%qsur(nr,nt_ice) = ctl%qsur_ice(nr)
+         TRunoff%qsub(nr,nt_liq) = ctl%qsub_liq(nr)
+         TRunoff%qsub(nr,nt_ice) = 0._r8
+         TRunoff%qgwl(nr,nt_liq) = ctl%qgwl_liq(nr)
+         TRunoff%qgwl(nr,nt_ice) = 0._r8
+         do nt = 1,ctl%ntracers_nonh2o
+            TRunoff%qsur(nr,nt+2) = ctl%qsur_liq_nonh2o(nr,nt)
+            TRunoff%qsub(nr,nt+2) = 0._r8
+            TRunoff%qgwl(nr,nt+2) = 0._r8
          enddo
       enddo
 
@@ -484,13 +498,13 @@ contains
       do nr = begr,endr
 
          ! calculate volume of irrigation flux during timestep
-         irrig_volume = -ctl%qirrig(nr) * coupling_period
+         irrig_volume = -ctl%qirrig_liq(nr) * coupling_period
 
          ! compare irrig_volume to main channel storage;
          ! add overage to subsurface runoff
          if(irrig_volume > TRunoff%wr(nr,nt_liq)) then
-            ctl%qsub(nr,nt_liq) = ctl%qsub(nr,nt_liq) + (TRunoff%wr(nr,nt_liq) - irrig_volume) / coupling_period
-            TRunoff%qsub(nr,nt_liq) = ctl%qsub(nr,nt_liq)
+            ctl%qsub_liq(nr) = ctl%qsub_liq(nr) + (TRunoff%wr(nr,nt_liq) - irrig_volume) / coupling_period
+            TRunoff%qsub(nr,nt_liq) = ctl%qsub_liq(nr)
             irrig_volume = TRunoff%wr(nr,nt_liq)
          endif
 
@@ -623,9 +637,10 @@ contains
       TRunoff%qgwl(:,nt_ice) = 0._r8
 
       !-----------------------------------------------------
-      ! option for direct to outlet liquid qgwl (glaciers, wetlands, lakes)
+      !--- direct to outlet: qgwl
       !-----------------------------------------------------
 
+      !-- liquid runoff components
       if (trim(bypass_routing_option) == 'direct_to_outlet') then
 
          src_direct(:,:) = 0._r8
@@ -714,7 +729,7 @@ contains
                endif
             enddo
          enddo
-      end if
+      endif
 
       !-------------------------------------------------------
       !--- direct to outlet: add other direct terms, e.g. inputs outside of mosart mask, negative qsur
@@ -750,7 +765,7 @@ contains
                   ! NOTE: that when nt = nt_ice, the TRunoff terms
                   ! below have already been set to zero in the frozen
                   ! runoff calculation above - where frozen runoff is always set to the outlet
-                  ctl%direct(nr,nt) = ctl%direct(nr,nt) + TRunoff%qsub(nr,nt) + TRunoff%qsur(nr,nt) + TRunoff%qgwl(nr,nt)
+                  src_direct(nt,cnt) = src_direct(nt,cnt) + TRunoff%qsub(nr,nt) + TRunoff%qsur(nr,nt) + TRunoff%qgwl(nr,nt)
                   TRunoff%qsub(nr,nt) = 0._r8
                   TRunoff%qsur(nr,nt) = 0._r8
                   TRunoff%qgwl(nr,nt) = 0._r8
@@ -815,7 +830,7 @@ contains
       enddo
 
       !-----------------------------------
-      ! mosart euler solver - subcycle the call to Euler
+      ! mosart Euler solver - subcycle the call to Euler
       !-----------------------------------
 
       call t_startf('mosartr_euler')
@@ -841,13 +856,19 @@ contains
       enddo ! nsub
       call t_stopf('mosartr_euler')
 
+      !-----------------------------------
       ! average flow over subcycling
+      !-----------------------------------
+
       ctl%flow        = ctl%flow        / float(nsub)
       ctl%erout_prev  = ctl%erout_prev  / float(nsub)
       ctl%eroutup_avg = ctl%eroutup_avg / float(nsub)
       ctl%erlat_avg   = ctl%erlat_avg   / float(nsub)
 
+      !-----------------------------------
       ! update states when subsycling completed
+      !-----------------------------------
+
       ctl%runoff = 0._r8
       ctl%runofflnd = spval
       ctl%runoffocn = spval
@@ -894,7 +915,7 @@ contains
       !-----------------------------------
 
       call t_startf('mosartr_hbuf')
-      call mosart_histflds_set(ntracers)
+      call mosart_histflds_set()
       call mosart_hist_updatehbuf()
       call t_stopf('mosartr_hbuf')
 

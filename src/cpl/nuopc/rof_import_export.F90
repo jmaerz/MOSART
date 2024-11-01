@@ -4,11 +4,13 @@ module rof_import_export
   use ESMF                , only : ESMF_KIND_R8, ESMF_SUCCESS, ESMF_MAXSTR, ESMF_LOGMSG_INFO
   use ESMF                , only : ESMF_LogWrite, ESMF_LOGMSG_ERROR, ESMF_LogFoundError
   use ESMF                , only : ESMF_STATEITEM_NOTFOUND, ESMF_StateItem_Flag
+  use ESMF                , only : ESMF_StateGet, ESMF_FieldGet, ESMF_Field
   use ESMF                , only : operator(/=), operator(==)
   use NUOPC               , only : NUOPC_CompAttributeGet, NUOPC_Advertise, NUOPC_IsConnected
   use NUOPC_Model         , only : NUOPC_ModelGet
   use shr_kind_mod        , only : r8 => shr_kind_r8
   use shr_sys_mod         , only : shr_sys_abort
+  use shr_infnan_mod      , only : isnan => shr_infnan_isnan
   use mosart_vars         , only : iulog, mainproc, mpicom_rof, ice_runoff
   use mosart_data         , only : ctl, TRunoff, TUnit
   use mosart_timemanager  , only : get_nstep
@@ -28,7 +30,13 @@ module rof_import_export
   private :: state_getimport2d
   private :: state_setexport1d
   private :: state_setexport2d
+  private :: check_for_nans
   private :: fldchk
+
+  interface check_for_nans
+     module procedure check_for_nans_1d
+     module procedure check_for_nans_2d
+  end interface check_for_nans
 
   type fld_list_type
      character(len=128) :: stdname
@@ -55,12 +63,11 @@ module rof_import_export
 contains
 !===============================================================================
 
-  subroutine advertise_fields(gcomp, flds_scalar_name, ntracers, rc)
+  subroutine advertise_fields(gcomp, flds_scalar_name, rc)
 
     ! input/output variables
     type(ESMF_GridComp)            :: gcomp
     character(len=*) , intent(in)  :: flds_scalar_name
-    integer          , intent(in)  :: ntracers ! total number of tracers
     integer          , intent(out) :: rc
 
     ! local variables
@@ -70,6 +77,7 @@ contains
     logical                :: isPresent       ! Atribute is present
     logical                :: isSet           ! Atribute is set
     integer                :: n, num
+    integer                :: ntracers_nonh2o
     character(len=128)     :: fldname
     character(len=*), parameter :: subname='(rof_import_export:advertise_fields)'
     !-------------------------------------------------------------------------------
@@ -79,27 +87,31 @@ contains
     call NUOPC_ModelGet(gcomp, importState=importState, exportState=exportState, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
+    ntracers_nonh2o = ctl%ntracers_nonh2o
+    write(6,*)'DEBUG: ntracers_nonh2o = ',ntracers_nonh2o
+
     !--------------------------------
     ! Advertise export fields
     !--------------------------------
 
+    call NUOPC_CompAttributeGet(gcomp, name="flds_r2l_stream_channel_depths", value=cvalue, &
+         isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent .and. isSet) read(cvalue,*) flds_r2l_stream_channel_depths
+
     call fldlist_add(fldsFrRof_num, fldsFrRof, trim(flds_scalar_name))
-    if (ntracers > 2) then
-       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl', ungridded_lbound=1, ungridded_ubound=ntracers-1)
-    else
-       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl')
+    if (ntracers_nonh2o > 1) then
+       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o', ungridded_lbound=1, ungridded_ubound=ntracers_nonh2o)
+    else if (ntracers_nonh2o == 1) then
+       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o')
     end if
+    call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofi')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_glc')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofi_glc')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Flrr_flood')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Flrr_volr')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Flrr_volrmch')
-
-    call NUOPC_CompAttributeGet(gcomp, name="flds_r2l_stream_channel_depths", value=cvalue, &
-         isPresent=isPresent, isSet=isSet, rc=rc)
-    if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    if (isPresent .and. isSet) read(cvalue,*) flds_r2l_stream_channel_depths
     if ( flds_r2l_stream_channel_depths )then
        call fldlist_add(fldsFrRof_num, fldsFrRof, 'Sr_tdepth')
        call fldlist_add(fldsFrRof_num, fldsFrRof, 'Sr_tdepth_max')
@@ -116,11 +128,12 @@ contains
     !--------------------------------
 
     call fldlist_add(fldsToRof_num, fldsToRof, trim(flds_scalar_name))
-    if (ntracers > 2) then
-       call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsur', ungridded_lbound=1, ungridded_ubound=ntracers-1)
-    else
-       call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsur')
+    if (ntracers_nonh2o > 1) then
+       call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsur_nonh2o', ungridded_lbound=1, ungridded_ubound=ntracers_nonh2o)
+    else  if (ntracers_nonh2o == 1) then
+       call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsur_nonh2o')
     end if
+    call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsur')
     call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofgwl')
     call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofsub')
     call fldlist_add(fldsToRof_num, fldsToRof, 'Flrl_rofi')
@@ -201,8 +214,7 @@ contains
     ! Determine areas for regridding
     call ESMF_MeshGet(Emesh, numOwnedElements=numOwnedElements, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-    !call ESMF_StateGet(exportState, itemName=trim(fldsFrRof(2)%stdname), field=lfield, rc=rc)
-    call ESMF_StateGet(exportState, itemName=trim(fldsFrRof(3)%stdname), field=lfield, rc=rc)
+    call ESMF_StateGet(exportState, itemName=trim(fldsFrRof(2)%stdname), field=lfield, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
     call ESMF_FieldRegridGetArea(lfield, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
@@ -266,9 +278,8 @@ contains
 
     ! Local variables
     type(ESMF_State) :: importState
-    integer          :: n,nt
-    integer          :: nno3, nh2o
-    integer          :: nliq, nice
+    integer          :: ntracers_tot
+    integer          :: ntracers_nonh2o
     character(len=*), parameter :: subname='(rof_import_export:import_fields)'
     !---------------------------------------------------------------------------
 
@@ -279,64 +290,47 @@ contains
     call NUOPC_ModelGet(gcomp, importState=importState, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    ! Set total number of tracers
-    ntracers_tot = ctl%ntracers
-
-    ! Set indices for liquid water and ice
-    nliq = ctl%nt_liq  ! liquid water
-    nice = ctl%nt_ice  ! ice
+    ntracers_tot = ctl%ntracers_tot
+    ntracers_nonh2o = ctl%ntracers_nonh2o
 
     ! determine output array and scale by unit convertsion
     ! NOTE: the call to state_getimport will convert from input kg/m2s to m3/s
-    ! NOTE: all liquid tracers need to come BEFORE the ice tracers -
 
-    ! --- From land ---
-
-    if (ntracers_tot > 2) then
-       call state_getimport2d(importState, 'Flrl_rofsur', ctl%area, output=ctl%qsur(:,1:ntracers_tot-1), &
-            do_area_correction=.true., rc=rc)
+    if (ntracers_nonh2o > 1) then
+       call state_getimport2d(importState, 'Flrl_rofsur_nonh2o', begr, endr, ntracers_nonh2o, ctl%area, &
+            output=ctl%qsur_liq_nonh2o, do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    else
-       call state_getimport1d(importState, 'Flrl_rofsur', ctl%area, output=ctl%qsur(:,nliq), &
-            do_area_correction=.true., rc=rc)
+    else if (ntracers_nonh2o == 1) then
+       call state_getimport1d(importState, 'Flrl_rofsur_nonh2o', begr, endr, ctl%area, &
+            output=ctl%qsur_liq_nonh2o(:,1), do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
     end if
 
-    call state_getimport(importState, 'Flrl_rofsub', begr, endr, ctl%area, output=ctl%qsub(:,nliq), &
-         do_area_correction=.true., rc=rc)
-    if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    if (ntracers_tot > 2) then
-       ctl%qsub(begr:endr, 2:ntracers_tot-1) = 0._r8
-    end if
-    ctl%qsub(begr:endr, nice) = 0.0_r8
-
-    call state_getimport(importState, 'Flrl_rofgwl', begr, endr, ctl%area, output=ctl%qgwl(:,nliq), &
-         do_area_correction=.true., rc=rc)
-    if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    if (ntracers_tot > 2) then
-       ctl%qgwl(begr:endr, 2:ntracers_tot-1) = 0._r8
-    end if
-    ctl%qgwl(begr:endr, nice) = 0.0_r8
-
-    call state_getimport(importState, 'Flrl_rofi', begr, endr, ctl%area, output=ctl%qsur(:,nice), &
+    call state_getimport1d(importState, 'Flrl_rofsur', begr,endr, ctl%area, output=ctl%qsur_liq, &
          do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_getimport(importState, 'Flrl_irrig', begr, endr, ctl%area, output=ctl%qirrig(:), &
+    call state_getimport1d(importState, 'Flrl_rofi', begr, endr, ctl%area, output=ctl%qsur_ice(:), &
          do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_getimport1d(importState, 'Flrl_rofi', ctl%area, output=ctl%qsur(:,nfrz_water), &
+    call state_getimport1d(importState, 'Flrl_rofsub', begr, endr, ctl%area, output=ctl%qsub_liq, &
          do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    ! --- From glc ---
+    call state_getimport1d(importState, 'Flrl_rofgwl', begr, endr, ctl%area, output=ctl%qgwl_liq, &
+         do_area_correction=.true., rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
+    call state_getimport1d(importState, 'Flrl_irrig', begr, endr, ctl%area, output=ctl%qirrig_liq, &
+         do_area_correction=.true., rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
     if (ctl%rof_from_glc) then
-      call state_getimport(importState, 'Fgrg_rofl', begr, endr, ctl%area, output=ctl%qglc_liq(:), &
+      call state_getimport1d(importState, 'Fgrg_rofl', begr, endr, ctl%area, output=ctl%qglc_liq, &
            do_area_correction=.true., rc=rc)
       if (ChkErr(rc,__LINE__,u_FILE_u)) return
-      call state_getimport(importState, 'Fgrg_rofi', begr, endr, ctl%area, output=ctl%qglc_ice(:), &
+      call state_getimport1d(importState, 'Fgrg_rofi', begr, endr, ctl%area, output=ctl%qglc_ice, &
            do_area_correction=.true., rc=rc)
       if (ChkErr(rc,__LINE__,u_FILE_u)) return
     else
@@ -347,7 +341,7 @@ contains
   end subroutine import_fields
 
   !====================================================================================
-  subroutine export_fields (gcomp, begr, endr, ntracers_tot, rc)
+  subroutine export_fields (gcomp, begr, endr, ntracers_nonh2o, rc)
 
     !---------------------------------------------------------------------------
     ! Send the runoff model export state to the mediator and convert from m3/s to kg/m2s
@@ -355,18 +349,19 @@ contains
 
     ! input/output/variables
     type(ESMF_GridComp)  :: gcomp
-    integer, intent(in)  :: begr, endr, ntracers_tot
+    integer, intent(in)  :: begr, endr
+    integer, intent(in)  :: ntracers_nonh2o
     integer, intent(out) :: rc
 
     ! Local variables
     type(ESMF_State) :: exportState
-    integer          :: n,nt
-    integer          :: nliq_water, nfrz_water
-    integer          :: ntracers_liq_nonwater
-    real(r8)         :: rofl(begr:endr,ntracers_tot-1)
-    real(r8)         :: rofi(begr:endr)
-    real(r8)         :: rofl_glc(begr:endr)
-    real(r8)         :: rofi_glc(begr:endr)
+    integer          :: nr,nt
+    integer          :: nliq, nice
+    real(r8)         :: rof_liq(begr:endr)
+    real(r8)         :: rof_ice(begr:endr)
+    real(r8)         :: rof_liq_nonh2o(begr:endr,ntracers_nonh2o)
+    real(r8)         :: rof_liq_glc(begr:endr)
+    real(r8)         :: rof_ice_glc(begr:endr)
     real(r8)         :: flood(begr:endr)
     real(r8)         :: volr(begr:endr)
     real(r8)         :: volrmch(begr:endr)
@@ -394,52 +389,46 @@ contains
        first_time = .false.
     end if
 
-    !-----------------------------
-    ! Non-water liquid runoff
-    !-----------------------------
+    ! Set tracers
+    nliq = ctl%nt_liq
+    nice = ctl%nt_ice
 
-    do nt = 2,ntracers_tot-1
-       do n = begr,endr
-          rofl(n,nt) =  ctl%direct(n,nt) / (ctl%area(n)*0.001_r8)
-          if (ctl%mask(n) >= 2) then
-             rofl(n,nt) = rofl(n,nt) + ctl%runoff(n,nt) / (ctl%area(n)*0.001_r8)
-          end if
-       end do
-    end do
-
-    !-----------------------------
-    ! Water runoff
-    !-----------------------------
-
-    ! Set liquid water and ice indices
-    nliq = ctl%nt_liq ! liquid water
-    nice = ctl%nt_ice ! ice
-
+    ! water tracers from lnd
     if ( ice_runoff )then
-       ! separate liquid and ice runoff
-       do n = begr,endr
-          rofl(n) =  ctl%direct(n,nliq) / (ctl%area(n)*0.001_r8)
-          rofi(n) =  ctl%direct(n,nice) / (ctl%area(n)*0.001_r8)
-          if (ctl%mask(n) >= 2) then
-             ! liquid and ice runoff are treated separately - this is what goes to the ocean
-             rofl(n) = rofl(n) + ctl%runoff(n,nliq) / (ctl%area(n)*0.001_r8)
-             rofi(n) = rofi(n) + ctl%runoff(n,nice) / (ctl%area(n)*0.001_r8)
+       ! separate water liquid and ice runoff
+       do nr = begr,endr
+          rof_liq(nr) = ctl%direct(nr,nliq) / (ctl%area(nr)*0.001_r8)
+          rof_ice(nr) = ctl%direct(nr,nice) / (ctl%area(nr)*0.001_r8)
+          if (ctl%mask(nr) >= 2) then
+             ! water liquid and ice runoff are treated separately - this is what goes to the ocean
+             rof_liq(nr) = rof_liq(nr) + ctl%runoff(nr,nliq) / (ctl%area(nr)*0.001_r8)
+             rof_ice(nr) = rof_ice(nr) + ctl%runoff(nr,nice) / (ctl%area(nr)*0.001_r8)
           end if
        end do
     else
-       ! liquid and ice runoff added to liquid runoff, ice runoff is zero
-       do n = begr,endr
-          rofl(n) = (ctl%direct(n,nice) + ctl%direct(n,nliq)) / (ctl%area(n)*0.001_r8)
-          if (ctl%mask(n) >= 2) then
-             rofl(n) = rofl(n) + (ctl%runoff(n,nice) + ctl%runoff(n,nliq)) / (ctl%area(n)*0.001_r8)
+       ! ice runoff added to water liquid runoff, ice runoff is zero
+       do nr = begr,endr
+          rof_liq(nr) = (ctl%direct(nr,nice) + ctl%direct(nr,nliq)) / (ctl%area(nr)*0.001_r8)
+          if (ctl%mask(nr) >= 2) then
+             rof_liq(nr) = rof_liq(nr) + (ctl%runoff(nr,nice) + ctl%runoff(nr,nliq)) / (ctl%area(nr)*0.001_r8)
           endif
-          rofi(n) = 0._r8
+          rof_ice(nr) = 0._r8
        end do
     end if
 
-    do n = begr,endr
-      rofl_glc(n) = ctl%direct_glc(n,nliq) / (ctl%area(n)*0.001_r8)
-      rofi_glc(n) = ctl%direct_glc(n,nice) / (ctl%area(n)*0.001_r8)
+    ! non-water liquid tracers from lnd
+    do nt = 1,ntracers_nonh2o
+       do nr = begr,endr
+          if (ctl%mask(nr) >= 2) then
+             rof_liq_nonh2o(nr,nt) = ctl%runoff(nr,nt+2) / (ctl%area(nr)*0.001_r8)
+          endif
+       end do
+    end do
+
+    ! water tracers from glc
+    do nr = begr,endr
+      rof_liq_glc(nr) = ctl%direct_glc(nr,nliq) / (ctl%area(nr)*0.001_r8)
+      rof_ice_glc(nr) = ctl%direct_glc(nr,nice) / (ctl%area(nr)*0.001_r8)
     end do
 
     ! Flooding back to land, sign convention is positive in land->rof direction
@@ -447,57 +436,52 @@ contains
     ! scs: is there a reason for the wr+wt rather than volr (wr+wt+wh)?
     ! volr(n) = (Trunoff%wr(n,nliq) + Trunoff%wt(n,nliq)) / ctl%area(n)
 
-    ! Flooding back to land, sign convention is positive in land->rof direction
-    ! so if water is sent from rof to land, the flux must be negative.
-    ! scs: is there a reason for the wr+wt rather than volr (wr+wt+wh)?
-    ! volr(n) = (Trunoff%wr(n,nliq) + Trunoff%wt(n,nliq)) / ctl%area(n)
-
-    do n = begr, endr
-       flood(n)   = -ctl%flood(n)    / (ctl%area(n)*0.001_r8)
-       volr(n)    =  ctl%volr(n,nliq)/ ctl%area(n)
-       volrmch(n) =  Trunoff%wr(n,nliq) / ctl%area(n)
+    do nr = begr, endr
+       flood(nr)   = -ctl%flood(nr) / (ctl%area(nr)*0.001_r8)
+       volr(nr)    =  ctl%volr(nr,nliq) / ctl%area(nr)
+       volrmch(nr) =  Trunoff%wr(nr,nliq) / ctl%area(nr)
        if ( flds_r2l_stream_channel_depths )then
-          tdepth(n)  = Trunoff%yt(n,nliq)
+          tdepth(nr)  = Trunoff%yt(nr,nliq)
           ! assume height to width ratio is the same for tributaries and main channel
-          tdepth_max(n) = max(TUnit%twidth0(n),0._r8)*(TUnit%rdepth(n)/TUnit%rwidth(n))
+          tdepth_max(nr) = max(TUnit%twidth0(nr),0._r8)*(TUnit%rdepth(nr)/TUnit%rwidth(nr))
         end if
     end do
 
-    !-----------------------------
-    ! Fill in export state
-    !-----------------------------
-
-    if (ntracers_tot > 2) then
-       call state_setexport2d(exportState, 'Forr_rofl', input=rofl, do_area_correction=.true., rc=rc)
+    if (ntracers_nonh2o > 1) then
+       call state_setexport2d(exportState, 'Forr_rofl_nonh2o', begr, endr, ntracers_nonh2o, input=rof_liq_nonh2o, &
+            do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    else
-       call state_setexport1d(exportState, 'Forr_rofl', input=rofl(:,1), do_area_correction=.true., rc=rc)
+    else if (ntracers_nonh2o == 1) then
+       call state_setexport1d(exportState, 'Forr_rofl_nonh2o', begr, endr, input=rof_liq_nonh2o(:,1), &
+            do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
     end if
-
-    call state_setexport1d(exportState, 'Forr_rofi', input=rofi, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Forr_rofl', begr, endr, input=rof_liq, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_setexport1d(exportState, 'Flrr_flood', input=flood, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Forr_rofi', begr, endr, input=rof_ice, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_setexport(exportState, 'Forr_rofl_glc', begr, endr, input=rofl_glc, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Forr_rofl_glc', begr, endr, input=rof_liq_glc, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_setexport(exportState, 'Forr_rofi_glc', begr, endr, input=rofi_glc, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Forr_rofi_glc', begr, endr, input=rof_ice_glc, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_setexport(exportState, 'Flrr_flood', begr, endr, input=flood, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Flrr_flood', begr, endr, input=flood, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    call state_setexport1d(exportState, 'Flrr_volrmch', input=volrmch, do_area_correction=.true., rc=rc)
+    call state_setexport1d(exportState, 'Flrr_volr', begr, endr, input=volr, do_area_correction=.true., rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
+    call state_setexport1d(exportState, 'Flrr_volrmch', begr, endr, input=volrmch, do_area_correction=.true., rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
     if ( flds_r2l_stream_channel_depths ) then
-       call state_setexport1d(exportState, 'Sr_tdepth', input=tdepth, do_area_correction=.true., rc=rc)
+       call state_setexport1d(exportState, 'Sr_tdepth', begr, endr, input=tdepth, do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-       call state_setexport1d(exportState, 'Sr_tdepth_max', input=tdepth_max, do_area_correction=.true., rc=rc)
+       call state_setexport1d(exportState, 'Sr_tdepth_max', begr, endr, input=tdepth_max, do_area_correction=.true., rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
     end if
 
@@ -525,7 +509,6 @@ contains
        return
     endif
     fldlist(num)%stdname = trim(stdname)
-
 
     if (present(ungridded_lbound) .and. present(ungridded_ubound)) then
        fldlist(num)%ungridded_lbound = ungridded_lbound
@@ -572,19 +555,11 @@ contains
              call SetScalarField(field, flds_scalar_name, flds_scalar_num, rc=rc)
              if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, line=__LINE__, file=u_FILE_u)) return
           else
-             ! Create the field
-             if (fldlist(n)%ungridded_lbound > 0 .and. fldlist(n)%ungridded_ubound > 0) then
-                field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, &
-                     ungriddedLbound=(/fldlist(n)%ungridded_lbound/), &
-                     ungriddedUbound=(/fldlist(n)%ungridded_ubound/), &
-                     gridToFieldMap=(/2/), rc=rc)
-                if (ChkErr(rc,__LINE__,u_FILE_u)) return
-             else
-                field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, rc=rc)
-                if (ChkErr(rc,__LINE__,u_FILE_u)) return
-             end if
              call ESMF_LogWrite(trim(subname)//trim(tag)//" Field = "//trim(stdname)//" is connected using mesh", &
-                  ESMF_LOGMSG_INFO)
+                  ESMF_LOGMSG_INFO, rc=dbrc)
+             ! Create the field
+             field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, rc=rc)
+             if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, line=__LINE__, file=u_FILE_u)) return
           endif
 
           ! NOW call NUOPC_Realize
@@ -639,27 +614,27 @@ contains
   end subroutine fldlist_realize
 
   !===============================================================================
-  subroutine state_getimport1d(state, fldname, area, output, do_area_correction, rc)
+  subroutine state_getimport1d(state, fldname, begr, endr, area, output, do_area_correction, rc)
 
     ! ----------------------------------------------
     ! Map import state field to output array
     ! ----------------------------------------------
 
-    use ESMF, only : ESMF_StateGet, ESMF_FieldGet, ESMF_Field
-
     ! input/output variables
     type(ESMF_State)    , intent(in)    :: state
     character(len=*)    , intent(in)    :: fldname
-    real(r8)            , intent(in)    :: area(:)
+    integer             , intent(in)    :: begr
+    integer             , intent(in)    :: endr
+    real(r8)            , intent(in)    :: area(begr:endr)
     logical             , intent(in)    :: do_area_correction
-    real(r8)            , intent(out)   :: output(:)
+    real(r8)            , intent(out)   :: output(begr:endr)
     integer             , intent(out)   :: rc
 
     ! local variables
-    type(ESMF_Field)  :: lfield
-    integer           :: g, i
-    real(R8), pointer :: fldptr1d(:)
-    character(len=*), parameter :: subname='(rof_import_export:state_getimport1d)'
+    type(ESMF_Field)            :: lfield
+    integer                     :: nr
+    real(R8), pointer           :: fldptr(:)
+    character(len=*), parameter :: subname='(rof_import_export:state_getimport)'
     ! ----------------------------------------------
 
     rc = ESMF_SUCCESS
@@ -667,47 +642,46 @@ contains
     ! get field pointer
     call ESMF_StateGet(State, itemName=trim(fldname), field=lfield, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    call ESMF_FieldGet(lfield, farrayPtr=fldptr1d, rc=rc)
+    call ESMF_FieldGet(lfield, farrayPtr=fldptr, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
+    ! determine output array and scale by unit convertsion
+    if (do_area_correction) then
+       fldptr(:) = fldptr(:) * med2mod_areacor(:)
+    end if
+    do nr = begr,endr
+       output(nr) = fldptr(nr-begr+1) * area(nr)*0.001_r8
+    end do
 
     ! check for nans
-    if (any(isnan(fldptr1d))) then
-       write(iulog,*) '# of NaNs = ', count(isnan(fldptr1d))
-       write(iulog,*) 'Which are NaNs = ', isnan(fldptr1d)
-       call shr_sys_abort(trim(subname //' One or more of the output from MOSART to the coupler are NaN'))
-    end if
+    call check_for_nans(fldptr, trim(fldname), 'import')
 
-    if (do_area_correction) then
-       fldptr1d(:) = fldptr1d(:) * med2mod_areacor(:)
-    end if
-    do g = 1,size(output)
-       output(g) = fldptr1d(g) * area(g)*0.001_r8
-    end do
-
- end subroutine state_getimport1d
+  end subroutine state_getimport1d
 
   !===============================================================================
-  subroutine state_getimport2d(state, fldname, area, output, do_area_correction, rc)
+  subroutine state_getimport2d(state, fldname, begr, endr, ntracers, &
+     area, output, do_area_correction, rc)
 
     ! ----------------------------------------------
     ! Map import state field to output array
     ! ----------------------------------------------
 
-    use ESMF, only : ESMF_StateGet, ESMF_FieldGet, ESMF_Field
-
     ! input/output variables
     type(ESMF_State)    , intent(in)    :: state
     character(len=*)    , intent(in)    :: fldname
-    real(r8)            , intent(in)    :: area(:)
+    integer             , intent(in)    :: begr
+    integer             , intent(in)    :: endr
+    integer             , intent(in)    :: ntracers
+    real(r8)            , intent(in)    :: area(begr:endr)
     logical             , intent(in)    :: do_area_correction
-    real(r8)            , intent(out)   :: output(:,:)
+    real(r8)            , intent(out)   :: output(begr:endr,ntracers)
     integer             , intent(out)   :: rc
 
     ! local variables
-    type(ESMF_Field)  :: lfield
-    integer           :: g, nt
-    real(R8), pointer :: fldptr2d(:,:)
-    character(len=*), parameter :: subname='(rof_import_export:state_getimport2d)'
+    type(ESMF_Field)            :: lfield
+    integer                     :: nr, nt
+    real(r8), pointer           :: fldptr2d(:,:)
+    character(len=*), parameter :: subname='(rof_import_export:state_getimport)'
     ! ----------------------------------------------
 
     rc = ESMF_SUCCESS
@@ -718,110 +692,95 @@ contains
     call ESMF_FieldGet(lfield, farrayPtr=fldptr2d, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    if (any(isnan(fldptr2d))) then
-       write(iulog,*) '# of NaNs = ', count(isnan(fldptr2d))
-       write(iulog,*) 'Which are NaNs = ', isnan(fldptr2d)
-       call shr_sys_abort(trim(subname) //' One or more of the output from MOSART to the coupler are NaN ' )
-    end if
-
+    ! determine output array and scale by unit convertsion
     if (do_area_correction) then
-       do nt = 1,size(fldptr2d, dim=2)
-          fldptr2d(:,nt) = fldptr2d(:,nt) * med2mod_areacor(:)
-       end do
+      do nt = 1,ntracers
+         fldptr2d(nt,:) = fldptr2d(nt,:) * med2mod_areacor(:)
+      end do
     end if
-
-    do nt = 1,size(output, dim=2)
-       do g = 1, size(output, dim=1)
-          output(g,nt) = fldptr2d(nt,g) * area(g)*0.001_r8
-       end do
+    do nr = begr,endr
+       output(nr,nt) = fldptr2d(nt,nr-begr+1) * area(nr)*0.001_r8
     end do
 
- end subroutine state_getimport2d
+    ! check for nans
+    call check_for_nans(fldptr2d, trim(fldname), 'import')
+
+  end subroutine state_getimport2d
 
   !===============================================================================
-
-  subroutine state_setexport1d(state, fldname, input, do_area_correction, rc)
+  subroutine state_setexport1d(state, fldname, begr, endr, input, do_area_correction, rc)
 
     ! ----------------------------------------------
     ! Map input array to export state field
     ! ----------------------------------------------
 
-    use ESMF         , only : ESMF_StateGet, ESMF_FieldGet, ESMF_Field
     use shr_const_mod, only : fillvalue=>shr_const_spval
 
     ! input/output variables
     type(ESMF_State)    , intent(inout) :: state
     character(len=*)    , intent(in)    :: fldname
-    real(r8)            , intent(in)    :: input(:)
+    integer             , intent(in)    :: begr
+    integer             , intent(in)    :: endr
+    real(r8)            , intent(in)    :: input(begr:endr)
     logical             , intent(in)    :: do_area_correction
     integer             , intent(out)   :: rc
 
     ! local variables
     type(ESMF_Field)            :: lfield
-    integer                     :: g, i
-    real(R8), pointer           :: fldptr1d(:)
-    character(len=*), parameter :: subname='(rof_import_export:state_setexport1d)'
+    integer                     :: nr
+    real(R8), pointer           :: fldptr(:)
+    character(len=*), parameter :: subname='(rof_import_export:state_setexport)'
     ! ----------------------------------------------
 
     rc = ESMF_SUCCESS
 
-    ! Check for nans in input
-    if (any(isnan(input))) then
-       write(iulog,*) '# of NaNs = ', count(isnan(input))
-       write(iulog,*) 'Which are NaNs = ', isnan(input)
-       call shr_sys_abort(trim(subname) //' One or more of the output from MOSART to the coupler are NaN ' )
-    end if
-
     ! get field pointer
     call ESMF_StateGet(State, itemName=trim(fldname), field=lfield, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    call ESMF_FieldGet(lfield, farrayPtr=fldptr1d, rc=rc)
+    call ESMF_FieldGet(lfield, farrayPtr=fldptr, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    ! set fldptr1d values to input array
-    fldptr1d(:) = 0._r8
-    do g = 1,size(input)
-       fldptr1d(g) = input(g)
+    ! set fldptr values to input array
+    fldptr(:) = 0._r8
+    do nr = begr,endr
+       fldptr(nr-begr+1) = input(nr)
     end do
     if (do_area_correction) then
-       fldptr1d(:) = fldptr1d(:) * mod2med_areacor(:)
+       fldptr(:) = fldptr(:) * mod2med_areacor(:)
     end if
 
- end subroutine state_setexport1d
+    ! check for nans
+    call check_for_nans(fldptr, trim(fldname), 'export')
+
+  end subroutine state_setexport1d
 
   !===============================================================================
-
-  subroutine state_setexport2d(state, fldname, input, do_area_correction, rc)
+  subroutine state_setexport2d(state, fldname, begr, endr, ntracers, input, do_area_correction, rc)
 
     ! ----------------------------------------------
     ! Map input array to export state field
     ! ----------------------------------------------
 
-    use ESMF         , only : ESMF_StateGet, ESMF_FieldGet, ESMF_Field
     use shr_const_mod, only : fillvalue=>shr_const_spval
 
     ! input/output variables
     type(ESMF_State)    , intent(inout) :: state
     character(len=*)    , intent(in)    :: fldname
-    real(r8)            , intent(in)    :: input(:,:)
+    integer             , intent(in)    :: begr
+    integer             , intent(in)    :: endr
+    integer             , intent(in)    :: ntracers
+    real(r8)            , intent(in)    :: input(begr:endr,ntracers)
     logical             , intent(in)    :: do_area_correction
     integer             , intent(out)   :: rc
 
     ! local variables
     type(ESMF_Field)            :: lfield
-    integer                     :: g, nt
+    integer                     :: nr, nt
     real(R8), pointer           :: fldptr2d(:,:)
-    character(len=*), parameter :: subname='(rof_import_export:state_setexport2d)'
+    character(len=*), parameter :: subname='(rof_import_export:state_setexport)'
     ! ----------------------------------------------
 
     rc = ESMF_SUCCESS
-
-    ! Check for nans in input
-    if (any(isnan(input))) then
-       write(iulog,*) '# of NaNs = ', count(isnan(input))
-       write(iulog,*) 'Which are NaNs = ', isnan(input)
-       call shr_sys_abort(trim(subname) //' One or more of the output from MOSART to the coupler are NaN ' )
-    end if
 
     ! get field pointer
     call ESMF_StateGet(State, itemName=trim(fldname), field=lfield, rc=rc)
@@ -829,18 +788,57 @@ contains
     call ESMF_FieldGet(lfield, farrayPtr=fldptr2d, rc=rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
-    ! set fldptr2d values to input array
+    ! set fldptr values to input array
     fldptr2d(:,:) = 0._r8
-    do nt = 1,size(fldptr2d, dim=2)
-       do g = 1,size(fldptr2d, dim=1)
-          fldptr2d(nt,g) = input(g,nt)
+    do nt = 1,ntracers
+       do nr = begr,endr
+          fldptr2d(nt,nr-begr+1) = input(nr,nt)
        end do
        if (do_area_correction) then
           fldptr2d(nt,:) = fldptr2d(nt,:) * mod2med_areacor(:)
        end if
     end do
 
- end subroutine state_setexport2d
+    ! check for nans
+    call check_for_nans(fldptr2d, trim(fldname), 'export')
+
+  end subroutine state_setexport2d
+
+  !===============================================================================
+
+  subroutine check_for_nans_1d(array, fname, type)
+     ! Check if any input from mediator or output to mediator is NaN
+
+     ! input/output variables
+     real(r8)         , pointer    :: array(:)
+     character(len=*) , intent(in) :: fname
+     character(len=*) , intent(in) :: type
+     !-------------------------------------------------------------------------------
+
+     if (any(isnan(array))) then
+        write(iulog,*) "NaN found in field ", trim(fname)
+        write(iulog,*) '# of NaNs = ', count(isnan(array))
+        write(iulog,*) 'Which are NaNs = ', isnan(array)
+        call shr_sys_abort(' ERROR: One or more of the '//trim(type)//' values are NaN ' )
+     end if
+  end subroutine check_for_nans_1d
+
+  subroutine check_for_nans_2d(array, fname, type)
+     ! Check if any input from mediator or output to mediator is NaN
+
+     ! input/output variables
+     real(r8)         , pointer    :: array(:,:)
+     character(len=*) , intent(in) :: fname
+     character(len=*) , intent(in) :: type
+     !-------------------------------------------------------------------------------
+
+     if (any(isnan(array))) then
+        write(iulog,*) "NaN found in field ", trim(fname)
+        write(iulog,*) '# of NaNs = ', count(isnan(array))
+        write(iulog,*) 'Which are NaNs = ', isnan(array)
+        call shr_sys_abort(' ERROR: One or more of the '//trim(type)//' values are NaN ' )
+     end if
+  end subroutine check_for_nans_2d
 
   !===============================================================================
   logical function fldchk(state, fldname)

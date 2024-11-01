@@ -137,9 +137,13 @@ contains
          do nt = 1, ntracers
             this%beg_vol_grc(nr, nt) = ctl%volr(nr, nt)
             if (nt == nt_ice) then
-               this%in_grc(nr, nt) = (ctl%qsur(nr, nt) + ctl%qsub(nr, nt) + ctl%qgwl(nr, nt) + ctl%qglc_ice(nr)) * dt
+               this%in_grc(nr,nt) = (ctl%qsur_ice(nr) + ctl%qglc_ice(nr)) * dt
             else if (nt == nt_liq) then
-               this%in_grc(nr, nt) = (ctl%qsur(nr, nt) + ctl%qsub(nr, nt) + ctl%qgwl(nr, nt) + ctl%qglc_liq(nr)) * dt
+               this%in_grc(nr,nt) = (ctl%qsur_liq(nr) + ctl%qsub_liq(nr) + ctl%qgwl_liq(nr) + ctl%qglc_liq(nr)) * dt
+            else
+               ! note nt-2 below since qsur_liq_nonh2o only refers to non-water tracers and the water tracers are the
+               ! first two indices in the nt loop
+               this%in_grc(nr,nt) = (ctl%qsur_liq_nonh2o(nr,nt-2)) * dt
             end if
             ! this was for budget_terms(17)
             !if (nt==1) then
@@ -172,9 +176,10 @@ contains
       real(r8), intent(in) :: dt
 
       ! Local variables
-      integer  :: nr, nt                !indecies
-      integer  :: nt_liq                ! liquid index
-      integer  :: yr,mon,day,ymd,tod    !time vars
+      integer  :: nr, nt                ! indecies
+      integer  :: nt_liq                ! h2o liquid index
+      integer  :: nt_ice                ! ice index
+      integer  :: yr,mon,day,ymd,tod    ! time vars
       real(r8) :: tmp_in(6, ntracers)   ! array to pass to mpi_sum
       real(r8) :: tmp_glob(6, ntracers) ! array from mpi_sum
       logical  :: error_budget          ! flag for an error
@@ -187,12 +192,17 @@ contains
       tmp_glob = 0.0_r8
 
       nt_liq = ctl%nt_liq
+      nt_ice = ctl%nt_ice
       do nr = begr, endr
          do nt = 1, ntracers
             this%end_vol_grc(nr, nt) = ctl%volr(nr, nt)
-            this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%direct(nr, nt) + ctl%direct_glc(nr, nt)
+            this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%direct(nr, nt)
             if (nt == nt_liq) then
-               this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%flood(nr)
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt)
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%flood(nr)
+            end if
+            if (nt == nt_ice) then
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt)
             end if
             if (ctl%mask(nr) >= 2) then
                this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%runoff(nr, nt)

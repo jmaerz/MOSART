@@ -369,7 +369,7 @@ contains
 
       nvariables = 7
       do nv = 1,nvariables
-         do nt = 1,ctl%ntracers
+         do nt = 1,ctl%ntracers_tot
 
             if (nv == 1) then
                vname = 'VOLR_'//trim(ctl%tracer_names(nt))
@@ -432,7 +432,7 @@ contains
 
       if (flag == 'read') then
          do n = ctl%begr,ctl%endr
-            do nt = 1,ctl%ntracers
+            do nt = 1,ctl%ntracers_tot
                if (abs(ctl%volr(n,nt))      > 1.e30) ctl%volr(n,nt) = 0.
                if (abs(ctl%runoff(n,nt))    > 1.e30) ctl%runoff(n,nt) = 0.
                if (abs(ctl%dvolrdt(n,nt))   > 1.e30) ctl%dvolrdt(n,nt) = 0.
@@ -442,12 +442,12 @@ contains
                if (abs(Trunoff%erout(n,nt)) > 1.e30) Trunoff%erout(n,nt) = 0.
             end do
             if (ctl%mask(n) == 1) then
-               do nt = 1,ctl%ntracers
+               do nt = 1,ctl%ntracers_tot
                   ctl%runofflnd(n,nt) = ctl%runoff(n,nt)
                   ctl%dvolrdtlnd(n,nt)= ctl%dvolrdt(n,nt)
                end do
             elseif (ctl%mask(n) >= 2) then
-               do nt = 1,ctl%ntracers
+               do nt = 1,ctl%ntracers_tot
                   ctl%runoffocn(n,nt) = ctl%runoff(n,nt)
                   ctl%dvolrdtocn(n,nt)= ctl%dvolrdt(n,nt)
                enddo

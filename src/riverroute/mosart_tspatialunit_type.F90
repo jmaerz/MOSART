@@ -91,13 +91,14 @@ module mosart_tspatialunit_type
 contains
 
    !-----------------------------------------------------------------------
-   subroutine Init(this, begr, endr, ntracers, nlon, nlat, EMesh, &
+   subroutine Init(this, begr, endr, ntracers, nt_ice, nlon, nlat, EMesh, &
         frivinp, IDkey, c_twid, DLevelR, area, gindex, outletg, pio_subsystem, rc)
 
       ! Arguments
       class(Tspatialunit_type)            :: this
       integer               , intent(in)  :: begr, endr
       integer               , intent(in)  :: ntracers
+      integer               , intent(in)  :: nt_ice
       real(r8)              , intent(in)  :: area(begr:endr)
       integer               , intent(in)  :: nlon, nlat
       character(len=*)      , intent(in)  :: frivinp
@@ -143,13 +144,8 @@ contains
       ! For now assume that frozen runoff is the last tracer
       ! set euler_calc = false for frozen runoff - all otohers are true
       allocate(this%euler_calc(ntracers))
-      do n = 1,ntracers
-         if (n < ntracers) then
-            this%euler_calc(n) = .true.
-         else
-            this%euler_calc(n) = .false.
-         end if
-      end do
+      this%euler_calc(:) = .true.
+      this%euler_calc(nt_ice) = .false.
 
       allocate(this%frac(begr:endr))
       ier = pio_inq_varid(ncid, name='frac', vardesc=vardesc)
