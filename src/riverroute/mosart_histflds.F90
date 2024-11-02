@@ -119,25 +119,26 @@ contains
               avgflag='A', long_name='MOSART river discharge into ocean: '//trim(ctl%tracer_names(nt)), &
               ptr_rof=h_runoffocn(nt)%data, default='active')
 
-         call mosart_hist_addfld (fname='TOTAL_DISCHARGE_TO_OCEAN'//'_'//trim(ctl%tracer_names(nt)), units='m3/s', &
-              avgflag='A', long_name='MOSART total discharge into ocean: '//trim(ctl%tracer_names(nt)), &
-              ptr_rof=h_runofftot(nt)%data, default='active')
-
          call mosart_hist_addfld (fname='DIRECT_DISCHARGE_TO_OCEAN'//'_'//trim(ctl%tracer_names(nt)), units='m3/s', &
               avgflag='A', long_name='MOSART direct discharge into ocean: '//trim(ctl%tracer_names(nt)), &
               ptr_rof=h_direct(nt)%data, default='active')
 
-         call mosart_hist_addfld (fname='DVOLRDT_LND'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
-              avgflag='A', long_name='MOSART land change in storage: '//trim(ctl%tracer_names(nt)), &
-              ptr_rof=h_dvolrdtlnd(nt)%data, default='inactive')
-
-         call mosart_hist_addfld (fname='DVOLRDT_OCN'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
-              avgflag='A', long_name='MOSART ocean change of storage: '//trim(ctl%tracer_names(nt)), &
-              ptr_rof=h_dvolrdtocn(nt)%data, default='inactive')
+         call mosart_hist_addfld (fname='TOTAL_DISCHARGE_TO_OCEAN'//'_'//trim(ctl%tracer_names(nt)), units='m3/s', &
+              avgflag='A', long_name='MOSART total discharge into ocean: '//trim(ctl%tracer_names(nt)), &
+              ptr_rof=h_runofftot(nt)%data, default='active')
 
          call mosart_hist_addfld (fname='STORAGE'//'_'//trim(ctl%tracer_names(nt)), units='m3',  &
               avgflag='A', long_name='MOSART storage: '//trim(ctl%tracer_names(nt)), &
-              ptr_rof=h_volr(nt)%data, default='inactive')
+              ptr_rof=h_volr(nt)%data, default='active')
+
+         call mosart_hist_addfld (fname='DVOLRDT_LND'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
+              avgflag='A', long_name='MOSART land change in storage: '//trim(ctl%tracer_names(nt)), &
+              ptr_rof=h_dvolrdtlnd(nt)%data, default='active')
+
+         call mosart_hist_addfld (fname='DVOLRDT_OCN'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
+              avgflag='A', long_name='MOSART ocean change of storage: '//trim(ctl%tracer_names(nt)), &
+              ptr_rof=h_dvolrdtocn(nt)%data, default='active')
+
       end do
 
       call mosart_hist_addfld (fname='DIRECT_DISCHARGE_TO_OCEAN_GLC_LIQ', units='m3/s', &
@@ -150,41 +151,41 @@ contains
 
       call mosart_hist_addfld (fname='STORAGE_MCH', units='m3',  &
            avgflag='A', long_name='MOSART main channelstorage', &
-           ptr_rof=h_volr_mch%data, default='inactive')
+           ptr_rof=h_volr_mch%data, default='active')
 
       call mosart_hist_addfld (fname='QIRRIG_FROM_COUPLER', units='m3/s',  &
            avgflag='A', long_name='Amount of water used for irrigation (total flux received from coupler)', &
-           ptr_rof=ctl%qirrig_liq, default='inactive')
+           ptr_rof=ctl%qirrig_liq, default='active')
 
       call mosart_hist_addfld (fname='QIRRIG_ACTUAL', units='m3/s',  &
            avgflag='A', long_name='Actual irrigation (if limited by river storage)', &
-           ptr_rof=ctl%qirrig_actual, default='inactive')
+           ptr_rof=ctl%qirrig_actual, default='active')
 
       ! ---------------
       ! Input
       ! ---------------
 
-      call mosart_hist_addfld (fname='QSUR_LIQ', units='m3/s',  &
+      call mosart_hist_addfld (fname='QSUR_LIQ_INPUT', units='m3/s',  &
            avgflag='A', long_name='MOSART input surface runoff liquid water from land', &
            ptr_rof=h_qsur_liq%data, default='active')
 
-      call mosart_hist_addfld (fname='QSUR_ICE', units='m3/s',  &
+      call mosart_hist_addfld (fname='QSUR_ICE_INPUT', units='m3/s',  &
            avgflag='A', long_name='MOSART input surface runoff ice from land', &
-           ptr_rof=h_qsur_ice%data, default='inactive')
+           ptr_rof=h_qsur_ice%data, default='active')
 
       do nt = 1,ctl%ntracers_nonh2o
-         call mosart_hist_addfld (fname='QSUR_LIQ_NONH2O'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
+         call mosart_hist_addfld (fname='QSUR_NONH2O'//'_'//trim(ctl%tracer_names(nt+2))//'_INPUT', units='m3/s',  &
               avgflag='A', long_name='MOSART input surface runoff non-h2o tracers from land', &
               ptr_rof=h_qsur_liq_nonh2o(nt)%data, default='active')
       end do
 
-      call mosart_hist_addfld (fname='QSUB_LIQ'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
+      call mosart_hist_addfld (fname='QSUB_LIQ_INPUT', units='m3/s',  &
            avgflag='A', long_name='MOSART input subsurface liquid water runoff from land', &
-           ptr_rof=h_qsub_liq%data, default='inactive')
+           ptr_rof=h_qsub_liq%data, default='active')
 
-      call mosart_hist_addfld (fname='QGWL_LIQ'//'_'//trim(ctl%tracer_names(nt)), units='m3/s',  &
+      call mosart_hist_addfld (fname='QGWL_LIQ_INPUT', units='m3/s',  &
            avgflag='A', long_name='MOSART input glacier/wetland/lake runoff from land', &
-           ptr_rof=h_qgwl_liq%data, default='inactive')
+           ptr_rof=h_qgwl_liq%data, default='active')
 
       call mosart_hist_addfld (fname='QGLC_LIQ_INPUT', units='m3',  &
            avgflag='A', long_name='MOSART input liquid runoff from glacier', &
@@ -220,13 +221,13 @@ contains
       ! Input
       h_qsur_liq%data(:) = ctl%qsur_liq(:)
       h_qsur_ice%data(:) = ctl%qsur_ice(:)
+      h_qsub_liq%data(:) = ctl%qsub_liq(:)
+      h_qgwl_liq%data(:) = ctl%qgwl_liq(:)
+      h_qglc_liq_input%data(:) = ctl%qglc_liq(:)
+      h_qglc_ice_input%data(:) = ctl%qglc_ice(:)
       do nt = 1,ctl%ntracers_nonh2o
          h_qsur_liq_nonh2o(nt)%data(:) = ctl%qsur_liq_nonh2o(:,nt)
       end do
-      h_qsub_liq%data(:)  = ctl%qsub_liq(:)
-      h_qgwl_liq%data(:)  = ctl%qgwl_liq(:)
-      h_qglc_liq_input%data(:) = ctl%qglc_liq(:)
-      h_qglc_ice_input%data(:) = ctl%qglc_ice(:)
 
       ! Output
       do nt = 1,ntracers_tot
@@ -234,10 +235,10 @@ contains
          h_runoffocn(nt)%data(:)  = ctl%runoffocn(:,nt)
          h_runofftot(nt)%data(:)  = ctl%runofftot(:,nt)
          h_direct(nt)%data(:)     = ctl%direct(:,nt)
+         h_volr(nt)%data(:)       = ctl%volr(:,nt)
          h_dvolrdtlnd(nt)%data(:) = ctl%dvolrdtlnd(:,nt)
          h_dvolrdtocn(nt)%data(:) = ctl%dvolrdtocn(:,nt)
       end do
-
       h_volr_mch%data(:) = Trunoff%wr(:,1)
       h_direct_glc_liq%data(:) = ctl%direct_glc(:,nt_liq)
       h_direct_glc_ice%data(:) = ctl%direct_glc(:,nt_ice)

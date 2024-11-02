@@ -88,7 +88,6 @@ contains
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
     ntracers_nonh2o = ctl%ntracers_nonh2o
-    write(6,*)'DEBUG: ntracers_nonh2o = ',ntracers_nonh2o
 
     !--------------------------------
     ! Advertise export fields
