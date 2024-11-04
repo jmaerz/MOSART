@@ -60,7 +60,7 @@ module mosart_driver
    character(len=CL) :: nlfilename_rof = 'mosart_in'
    character(len=CL) :: fnamer              ! name of netcdf restart file
 
-   integer :: nt_liq, nt_ice
+   integer :: nt_liq, nt_ice                ! Index for liquid water and ice
 
    character(*), parameter :: u_FILE_u = &
         __FILE__
@@ -79,7 +79,6 @@ contains
       integer           :: unitn     ! unit for namelist file
       logical           :: lexist    ! File exists
       character(len=CS) :: runtyp(4) ! run type
-      character(len=CS) :: liquid_extra_tracers
       character(len=CS) :: lnd2rof_tracers
       character(len=*),parameter :: subname = '(mosart_read_namelist) '
       !-----------------------------------------------------------------------
@@ -147,6 +146,7 @@ contains
       call mpi_bcast (budget_frq, 1, MPI_INTEGER, 0, mpicom_rof, ier)
 
       ! lnd2rof liquid tracers (liquid tracers OTHER than water)
+      ! coupling the land input of tracers other than standard water to MOSART
       if (mainproc) then
          write(iulog,'(a)') 'reading in non-water tracers from land (if any) in drv_flds_in '
       end if
