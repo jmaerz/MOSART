@@ -142,7 +142,7 @@ contains
       call pio_initdecomp(pio_subsystem, pio_int   , dsizes, compDOF, iodesc_int)
 
       ! For now assume that frozen runoff is the last tracer
-      ! set euler_calc = false for frozen runoff - all otohers are true
+      ! set euler_calc = false for frozen runoff - all others are true
       allocate(this%euler_calc(ntracers))
       this%euler_calc(:) = .true.
       this%euler_calc(nt_ice) = .false.
@@ -348,7 +348,7 @@ contains
             ! constrain hlen (hillslope length) values based on cell area
             hlen_max = max(1000.0_r8, sqrt(this%area(n)))
             if(this%hlen(n) > hlen_max) then
-               this%hlen(n) = hlen_max   ! allievate the outlier in drainag\e density estimation. TO DO
+               this%hlen(n) = hlen_max   ! alleviate the outlier in drainage density estimation. TO DO
             end if
 
             this%tlen(n) = this%area(n) / this%rlen(n) / 2._r8 - this%hlen(n)
@@ -423,9 +423,9 @@ contains
 
       ! Arguments
       class(Tspatialunit_type) :: this
-      integer , intent(in)     :: begr, endr
-      integer , intent(in)     :: gindex(begr:endr)
-      integer , intent(in)     :: outletg(begr:endr)
+      integer , intent(in)     :: begr, endr          ! local start and end index
+      integer , intent(in)     :: gindex(begr:endr)   ! global index consistent with map file
+      integer , intent(in)     :: outletg(begr:endr)  ! outlet index, global
       integer , intent(out)    :: rc
 
       ! Local variables
@@ -526,9 +526,9 @@ contains
 
       ! Arguments
       class(Tspatialunit_type) :: this
-      integer  , intent(in)    :: begr, endr
-      integer  , intent(in)    :: nlon,nlat
-      real(r8) , intent(in)    :: area(begr:endr)
+      integer  , intent(in)    :: begr, endr      ! local start and end index
+      integer  , intent(in)    :: nlon,nlat       ! number of lon and lat
+      real(r8) , intent(in)    :: area(begr:endr) ! local area [m2]
       integer  , intent(out)   :: rc
 
       ! Local variables
