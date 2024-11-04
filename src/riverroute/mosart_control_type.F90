@@ -400,7 +400,7 @@ contains
     this%qgwl_liq(:)          = 0._r8
     this%qglc_liq(:)          = 0._r8
     this%qglc_ice(:)          = 0._r8
-    this%fthresh(:)           = abs(spval)
+    this%fthresh(:)           = abs(spval) ! this is the only place the value fthresh is set - is this correct?
     this%flow(:,:)            = 0._r8
     this%erout_prev(:,:)      = 0._r8
     this%eroutup_avg(:,:)     = 0._r8
