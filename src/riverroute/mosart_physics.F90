@@ -20,22 +20,25 @@ module mosart_physics
    implicit none
    private
 
-   public :: Euler
-   public :: updatestate_hillslope
-   public :: updatestate_subnetwork
-   public :: updatestate_mainchannel
-   public :: hillsloperouting
-   public :: subnetworkrouting
-   public :: mainchannelrouting
+   public  :: Euler
+   public  :: mosart_physics_restart
 
-   private :: Routing_KW
-   private :: CRVRMAN_nosqrt
-   private :: CREHT_nosqrt
-   private :: GRMR
-   private :: GRHT
-   private :: GRPT
-   private :: GRRR
-   private :: GRPR
+   private :: hillsloperouting
+   private :: updatestate_hillslope
+
+   private :: subnetworkrouting
+   private :: updatestate_subnetwork
+
+   private :: mainchannelrouting
+   private :: updatestate_mainchannel
+
+   private :: CRVRMAN ! Function for calculating channel velocity according to Manning's equation.
+   private :: CREHT   ! Function for overland from hillslope into the sub-network channels
+   private :: GRMR    ! Function for estimate wetted channel area
+   private :: GRHT    ! Function for estimating water depth assuming rectangular channel
+   private :: GRPT    ! Function for estimating wetted perimeter assuming rectangular channel
+   private :: GRRR    ! Function for estimating hydraulic radius
+   private :: GRPR    ! Function for estimating maximum water depth assuming rectangular channel and tropezoidal flood plain
 
    real(r8), parameter :: TINYVALUE = 1.0e-14_r8 ! double precision variable has a significance of about 16 decimal digits
    real(r8), parameter :: SLOPE1def = 0.1_r8     ! here give it a small value in order to avoid the abrupt change of hydraulic radidus etc.
@@ -62,26 +65,98 @@ contains
       real(r8), pointer :: src_eroutUp(:,:)
       real(r8), pointer :: dst_eroutUp(:,:)
 
+      rc = ESMF_SUCCESS
+
+      associate( &
+           ! ctl
+           begr        => ctl%begr,            &
+           endr        => ctl%endr,            &
+           ntracers    => ctl%ntracers_tot,    &
+
+           ! tctl
+           deltat      => tctl%DeltaT,         &
+           DLevelH2R   => tctl%DLevelH2R,      &
+
+           ! Tunit
+           euler_calc  => Tunit%euler_calc,    &
+           area        => Tunit%area,          &
+           frac        => Tunit%frac,          &
+           mask        => Tunit%mask,          &
+           numDT_r     => Tunit%numDT_r,       &
+           numDT_t     => Tunit%numDT_t,       &
+
+           ! hillsloope
+           !! states
+           wh          => TRunoff%wh,          & ! storage of surface water, [m]
+           dwh         => TRunoff%dwh,         & ! change of water storage, [m/s]
+           yh          => TRunoff%wh,          & ! depth of surface water, [m]
+           wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]
+           wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]
+           qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s] NOT_USED
+           qdunne      => Trunoff%qdunne,      & ! Saturation excess runoff generated from hillslope, [m/s] NOT_USED
+           qsur        => Trunoff%qsur,        & ! Surface runoff generated from hillslope, [m/s]
+           qsub        => Trunoff%qsub,        & ! Subsurface runoff generated from hillslope, [m/s]
+           qgwl        => Trunoff%qgwl,        & ! gwl runoff term from glacier, wetlands and lakes, [m/s]
+           !! fluxes
+           ehout       => Trunoff%ehout,       & ! overland flow from hillslope into the sub-channel, [m/s]
+
+           ! subnetwork channel
+           !! states
+           tarea       => Trunoff%tarea,       & ! area of channel water surface, [m2]
+           wt          => Trunoff%wt,          & ! storage of surface water, [m3]
+           dwt         => Trunoff%dwt,         & ! change of water storage, [m3]
+           yt          => Trunoff%yt,          & ! water depth, [m]
+           mt          => Trunoff%mt,          & ! cross section area, [m2]
+           pt          => Trunoff%pt,          & ! wetness perimeter, [m]
+           vt          => Trunoff%vt,          & ! flow velocity, [m/s]
+           rt          => TRunoff%rt,          & ! hydraulic radii, [m]
+           !! fluxes
+           etin        => Trunoff%etin,        & ! lateral inflow from hillslope [m3/s]
+           etout       => Trunoff%etout,       & ! discharge from sub-network into the main reach, [m3/s]
+
+           ! main channel
+           !! states
+           rarea       => Trunoff%rarea,       & ! area of channel water surface, [m2]
+           wr          => Trunoff%wr,          & ! storage of surface water, [m3]
+           dwr         => Trunoff%dwr,         & ! change of water storage, [m3]
+           yr          => Trunoff%yr,          & ! water depth. [m]
+           mr          => Trunoff%mr,          & ! cross section area, [m2]
+           rr          => Trunoff%rr,          & ! hydraulic radius, [m]
+           pr          => Trunoff%pr,          & ! wetness perimeter, [m]
+           vr          => Trunoff%vr,          & ! flow velocity, [m/s]
+           !! exchange fluxes
+           erlateral   => Trunoff%erlateral,   & ! lateral flow from hillslope [m3/s]
+           erin        => Trunoff%erin,        & ! inflow from upstream links, [m3/s]
+           erout       => Trunoff%erout,       & ! outflow into downstream links, [m3/s]
+           erout_prev  => Trunoff%erout_prev,  & ! outflow into downstream links from previous timestep, [m3/s]
+           eroutUp     => Trunoff%eroutUp,     & ! outflow sum of upstream gridcells, instantaneous (m3/s)
+           eroutUp_avg => Trunoff%eroutUp_avg, & ! outflow sum of upstream gridcells, average [m3/s]
+           erlat_avg   => Trunoff%erlat_avg,   & ! erlateral average [m3/s]
+           flow        => Trunoff%flow         & ! streamflow from the outlet of the reach, [m3/s]
+      )
+
       !------------------
       ! hillslope
       !------------------
 
-      rc = ESMF_SUCCESS
-
       call t_startf('mosartr_hillslope')
-      do nt = 1,ctl%ntracers_tot
-         if (TUnit%euler_calc(nt)) then
-            do nr = ctl%begr,ctl%endr
-               if(TUnit%mask(nr) > 0) then
-                  call hillslopeRouting(nr,nt,Tctl%DeltaT)
-                  TRunoff%wh(nr,nt) = TRunoff%wh(nr,nt) + TRunoff%dwh(nr,nt) * Tctl%DeltaT
-                  call UpdateState_hillslope(nr,nt)
-                  TRunoff%etin(nr,nt) = (-TRunoff%ehout(nr,nt) + TRunoff%qsub(nr,nt)) * TUnit%area(nr) * TUnit%frac(nr)
+      do nt = 1,ntracers
+         if (euler_calc(nt)) then
+            do nr = begr,endr
+               if (mask(nr) > 0) then
+                  call hillslopeRouting(nr, DeltaT, yh(nr,nt), wh(nr,nt), qsur(nr,nt), ehout(nr,nt), dwh(nr,nt))
+                  wh(nr,nt) = wh(nr,nt) + dwh(nr,nt) * DeltaT
+                  call UpdateState_hillslope(wh(nr,nt), yh(nr,nt))
+                  etin(nr,nt) = (-ehout(nr,nt) + qsub(nr,nt)) * area(nr) * frac(nr)
                endif
             end do
          endif
       end do
       call t_stopf('mosartr_hillslope')
+
+      !------------------
+      ! subnetwork and channel
+      !------------------
 
       call ESMF_FieldGet(Tunit%srcfield, farrayPtr=src_eroutUp, rc=rc)
       if (chkerr(rc,__LINE__,u_FILE_u)) return
@@ -90,19 +165,19 @@ contains
       src_eroutUp(:,:) = 0._r8
       dst_eroutUp(:,:) = 0._r8
 
-      TRunoff%flow = 0._r8
-      TRunoff%erout_prev = 0._r8
-      TRunoff%eroutup_avg = 0._r8
-      TRunoff%erlat_avg = 0._r8
+      flow = 0._r8
+      erout_prev = 0._r8
+      eroutup_avg = 0._r8
+      erlat_avg = 0._r8
       negchan = 9999.0_r8
 
-      do m=1,Tctl%DLevelH2R
+      do m = 1,DLevelH2R
 
          ! accumulate/average erout at prior timestep (used in eroutUp calc) for budget analysis
-         do nt=1,ctl%ntracers_tot
-            if (TUnit%euler_calc(nt)) then
-               do nr=ctl%begr,ctl%endr
-                  TRunoff%erout_prev(nr,nt) = TRunoff%erout_prev(nr,nt) + TRunoff%erout(nr,nt)
+         do nt=1,ntracers
+            if (euler_calc(nt)) then
+               do nr=begr,endr
+                  erout_prev(nr,nt) = erout_prev(nr,nt) + erout(nr,nt)
                end do
             end if
          end do
@@ -112,19 +187,21 @@ contains
          !------------------
 
          call t_startf('mosartr_subnetwork')
-         TRunoff%erlateral(:,:) = 0._r8
-         do nt = 1,ctl%ntracers_tot
-            if (TUnit%euler_calc(nt)) then
-               do nr = ctl%begr,ctl%endr
-                  if(TUnit%mask(nr) > 0) then
-                     localDeltaT = Tctl%DeltaT/Tctl%DLevelH2R/TUnit%numDT_t(nr)
-                     do k = 1,TUnit%numDT_t(nr)
-                        call subnetworkRouting(nr,nt,localDeltaT)
-                        TRunoff%wt(nr,nt) = TRunoff%wt(nr,nt) + TRunoff%dwt(nr,nt) * localDeltaT
-                        call UpdateState_subnetwork(nr,nt)
-                        TRunoff%erlateral(nr,nt) = TRunoff%erlateral(nr,nt)-TRunoff%etout(nr,nt)
+         erlateral(:,:) = 0._r8
+         do nt=1,ntracers
+            if (euler_calc(nt)) then
+               do nr = begr,endr
+                  if (mask(nr) > 0) then
+                     localDeltaT = DeltaT/DLevelH2R/numDT_t(nr)
+                     do k = 1,numDT_t(nr)
+                        call subnetworkRouting(nr, localDeltaT, rt(nr,nt), mt(nr,nt), wt(nr,nt), etin(nr,nt), & ! input
+                             etout(nr,nt), vt(nr,nt), dwt(nr,nt))                                               ! output
+                        wt(nr,nt) = wt(nr,nt) + dwt(nr,nt) * localDeltaT
+                        call UpdateState_subnetwork(nr, wt(nr,nt), &     ! input
+                             mt(nr,nt), yt(nr,nt), pt(nr,nt), rt(nr,nt)) ! output
+                        erlateral(nr,nt) = erlateral(nr,nt) - etout(nr,nt)
                      end do ! numDT_t
-                     TRunoff%erlateral(nr,nt) = TRunoff%erlateral(nr,nt) / TUnit%numDT_t(nr)
+                     erlateral(nr,nt) = erlateral(nr,nt) / numDT_t(nr)
                   endif
                end do ! nr
             endif  ! euler_calc
@@ -144,13 +221,13 @@ contains
          call t_startf('mosartr_SMeroutUp')
 
          !--- copy erout into src_eroutUp ---
-         TRunoff%eroutUp = 0._r8
+         eroutUp = 0._r8
          src_eroutUp(:,:) = 0._r8
          cnt = 0
-         do nr = ctl%begr,ctl%endr
+         do nr = begr,endr
             cnt = cnt + 1
-            do nt = 1,ctl%ntracers_tot
-               src_eroutUp(nt,cnt) = TRunoff%erout(nr,nt)
+            do nt = 1,ntracers
+               src_eroutUp(nt,cnt) = erout(nr,nt)
             enddo
          enddo
 
@@ -160,50 +237,57 @@ contains
 
          !--- copy mapped eroutUp to TRunoff ---
          cnt = 0
-         do nr = ctl%begr,ctl%endr
+         do nr = begr,endr
             cnt = cnt + 1
-            do nt = 1,ctl%ntracers_tot
-               TRunoff%eroutUp(nr,nt) = dst_eroutUp(nt,cnt)
+            do nt = 1,ntracers
+               eroutUp(nr,nt) = dst_eroutUp(nt,cnt)
             enddo
          enddo
 
          call t_stopf('mosartr_SMeroutUp')
 
-         TRunoff%eroutup_avg = TRunoff%eroutup_avg + TRunoff%eroutUp
-         TRunoff%erlat_avg   = TRunoff%erlat_avg   + TRunoff%erlateral
+         eroutup_avg = eroutup_avg + eroutUp
+         erlat_avg   = erlat_avg   + erlateral
 
          !------------------
-         ! channel routing
+         ! main channel routing
          !------------------
 
          call t_startf('mosartr_chanroute')
-         do nt=1,ctl%ntracers_tot
-            if (TUnit%euler_calc(nt)) then
-               do nr=ctl%begr,ctl%endr
-                  if(TUnit%mask(nr) > 0) then
-                     localDeltaT = Tctl%DeltaT/Tctl%DLevelH2R/TUnit%numDT_r(nr)
+         do nt = 1,ntracers
+            if (euler_calc(nt)) then
+               do nr = begr,endr
+                  if(mask(nr) > 0) then
+                     localDeltaT = DeltaT/DLevelH2R/numDT_r(nr)
                      temp_erout = 0._r8
-                     do k=1,TUnit%numDT_r(nr)
-                        ! TODO: is it positive (TRunoff%wr) and negative afterwards
-                        call mainchannelRouting(nr,nt,localDeltaT)
-                        TRunoff%wr(nr,nt) = TRunoff%wr(nr,nt) + TRunoff%dwr(nr,nt) * localDeltaT
+                     do k = 1,numDT_r(nr)
+
+                        ! TODO: is it positive (wr) and negative afterwards
+                        call mainchannelRouting(nr, localDeltaT,&
+                             eroutUp(nr,nt), erlateral(nr,nt), wr(nr,nt), mr(nr,nt), rr(nr,nt), qgwl(nr,nt), & ! input
+                             erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                                 ! output
+                        wr(nr,nt) = wr(nr,nt) + dwr(nr,nt) * localDeltaT
+
                         ! check for negative channel storage
-                        ! if(TRunoff%wr(nr,1) < -1.e-10) then
-                        !    write(iulog,*) 'Negative channel storage! ', nr, TRunoff%wr(nr,1)
+                        ! if(wr(nr,1) < -1.e-10) then
+                        !    write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
                         !    call shr_sys_abort('mosart: negative channel storage')
                         ! end if
-                        call UpdateState_mainchannel(nr,nt)
+
+                        call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
+                             mr(nr,nt), yr(nr,nt), pr(nr,nt), rr(nr,nt)) ! output
+
                         ! erout here might be inflow to some downstream subbasin, so treat it differently than erlateral
-                        temp_erout = temp_erout + TRunoff%erout(nr,nt)
+                        temp_erout = temp_erout + erout(nr,nt)
                      end do
-                     temp_erout = temp_erout / TUnit%numDT_r(nr)
-                     TRunoff%erout(nr,nt) = temp_erout
-                     TRunoff%flow(nr,nt) = TRunoff%flow(nr,nt) - TRunoff%erout(nr,nt)
+                     temp_erout = temp_erout / numDT_r(nr)
+                     erout(nr,nt) = temp_erout
+                     flow(nr,nt) = flow(nr,nt) - erout(nr,nt)
                   endif
                end do ! nr
             endif  ! euler_calc
          end do ! nt
-         negchan = min(negchan, minval(TRunoff%wr(:,:)))
+         negchan = min(negchan, minval(wr(:,:)))
 
          call t_stopf('mosartr_chanroute')
       end do
@@ -213,227 +297,276 @@ contains
          write(iulog,*) 'Warning: Negative channel storage found! ',negchan
          ! call shr_sys_abort('mosart: negative channel storage')
       endif
-      TRunoff%flow = TRunoff%flow / Tctl%DLevelH2R
-      TRunoff%erout_prev = TRunoff%erout_prev / Tctl%DLevelH2R
-      TRunoff%eroutup_avg = TRunoff%eroutup_avg / Tctl%DLevelH2R
-      TRunoff%erlat_avg = TRunoff%erlat_avg / Tctl%DLevelH2R
+      flow = flow / DLevelH2R
+      erout_prev = erout_prev / DLevelH2R
+      eroutup_avg = eroutup_avg / DLevelH2R
+      erlat_avg = erlat_avg / DLevelH2R
+
+    end associate
 
    end subroutine Euler
 
    !-----------------------------------------------------------------------
 
-   subroutine hillslopeRouting(nr, nt, theDeltaT)
+   subroutine hillslopeRouting(nr, DeltaT, yh, wh, qsur, ehout, dwh)
       !  Hillslope routing considering uniform runoff generation across hillslope
 
       ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
+      integer , intent(in)  :: nr
+      real(r8), intent(in)  :: DeltaT ! Time step in seconds
+      real(r8), intent(in)  :: yh     ! depth of surface water, [m]
+      real(r8), intent(in)  :: wh     ! storage of surface water, [m]
+      real(r8), intent(in)  :: qsur   ! Surface runoff generated from hillslope, [m/s]
+      real(r8), intent(out) :: ehout  ! overland flow from hillslope into the sub-channel, [m/s]
+      real(r8), intent(out) :: dwh    ! change of water storage, [m/s]
 
-      TRunoff%ehout(nr,nt) = -CREHT_nosqrt(TUnit%hslpsqrt(nr), TUnit%nh(nr), TUnit%Gxr(nr), TRunoff%yh(nr,nt))
-      if(TRunoff%ehout(nr,nt) < 0._r8 .and. &
-           TRunoff%wh(nr,nt) + (TRunoff%qsur(nr,nt) + TRunoff%ehout(nr,nt)) * theDeltaT < TINYVALUE) then
-         TRunoff%ehout(nr,nt) = -(TRunoff%qsur(nr,nt) + TRunoff%wh(nr,nt) / theDeltaT)
+      ehout = -CREHT(TUnit%hslpsqrt(nr), TUnit%nh(nr), TUnit%Gxr(nr), yh)
+      if(ehout < 0._r8 .and. (wh + (qsur + ehout) * DeltaT) < TINYVALUE) then
+         ehout = -(qsur + wh / DeltaT)
       end if
-      TRunoff%dwh(nr,nt) = (TRunoff%qsur(nr,nt) + TRunoff%ehout(nr,nt))
+      dwh = (qsur + ehout)
 
    end subroutine hillslopeRouting
 
    !-----------------------------------------------------------------------
 
-   subroutine subnetworkRouting(nr,nt,theDeltaT)
+   subroutine subnetworkRouting(nr, DeltaT, rt, mt, wt, etin, etout, vt, dwt)
       !  subnetwork channel routing
 
       ! Arguments
-      integer, intent(in) :: nr,nt
-      real(r8), intent(in) :: theDeltaT
+      integer , intent(in)  :: nr
+      real(r8), intent(in)  :: DeltaT
+      real(r8), intent(in)  :: rt    ! hydraulic radius, [m]
+      real(r8), intent(in)  :: mt    ! cross section area, [m2]
+      real(r8), intent(in)  :: wt    ! storage of surface water, [m3]
+      real(r8), intent(in)  :: etin  ! lateral inflow from hillslope
+      real(r8), intent(out) :: etout ! discharge from sub-network into the main reach, [m3/s]
+      real(r8), intent(out) :: vt    ! flow velocity, [m/s]
+      real(r8), intent(out) :: dwt   ! change of water storage, [m3]
 
       if(TUnit%tlen(nr) <= TUnit%hlen(nr)) then ! if no tributaries, not subnetwork channel routing
-         TRunoff%etout(nr,nt) = -TRunoff%etin(nr,nt)
+         etout = -etin
       else
-         TRunoff%vt(nr,nt) = CRVRMAN_nosqrt(TUnit%tslpsqrt(nr), TUnit%nt(nr), TRunoff%rt(nr,nt))
-         TRunoff%etout(nr,nt) = -TRunoff%vt(nr,nt) * TRunoff%mt(nr,nt)
-         if(TRunoff%wt(nr,nt) + (TRunoff%etin(nr,nt) + TRunoff%etout(nr,nt)) * theDeltaT < TINYVALUE) then
-            TRunoff%etout(nr,nt) = -(TRunoff%etin(nr,nt) + TRunoff%wt(nr,nt)/theDeltaT)
-            if(TRunoff%mt(nr,nt) > 0._r8) then
-               TRunoff%vt(nr,nt) = -TRunoff%etout(nr,nt)/TRunoff%mt(nr,nt)
+         vt = CRVRMAN(TUnit%tslpsqrt(nr), TUnit%nt(nr), rt)
+         etout = -vt * mt
+         if (wt + (etin + etout) * DeltaT < TINYVALUE) then
+            etout = -(etin + wt/DeltaT)
+            if (mt > 0._r8) then
+               vt = -etout/mt
             end if
          end if
       end if
-      TRunoff%dwt(nr,nt) = TRunoff%etin(nr,nt) + TRunoff%etout(nr,nt)
+      dwt = etin + etout
 
       ! check stability
-      !    if(TRunoff%vt(nr,nt) < -TINYVALUE .or. TRunoff%vt(nr,nt) > 30) then
-      !       write(iulog,*) "Numerical error in subnetworkRouting, ", nr,nt,TRunoff%vt(nr,nt)
-      !    end if
+      ! if(vt < -TINYVALUE .or. vt > 30) then
+      !    write(iulog,*) "Numerical error in subnetworkRouting, ", nr,vt
+      ! end if
 
    end subroutine subnetworkRouting
 
    !-----------------------------------------------------------------------
 
-   subroutine mainchannelRouting(nr, nt, theDeltaT)
-      !  main channel routing
+   subroutine mainchannelRouting(nr, DeltaT, eroutUp, erlateral, wr, mr, rr, qgwl, &
+        erin, erout, vr, dwr)
 
-      ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
-
-      if(Tctl%RoutingMethod == 1) then
-         call Routing_KW(nr, nt, theDeltaT)
-      else
-         call shr_sys_abort( "mosart: Please check the routing method! There is only 1 method currently available." )
-      end if
-
-   end subroutine mainchannelRouting
-
-   !-----------------------------------------------------------------------
-
-   subroutine Routing_KW(nr, nt, theDeltaT)
       !  classic kinematic wave routing method
 
       ! Arguments
-      integer, intent(in) :: nr, nt
-      real(r8), intent(in) :: theDeltaT
+      integer , intent(in)  :: nr
+      real(r8), intent(in)  :: DeltaT
+      real(r8), intent(in)  :: eroutUp   ! outflow sum of upstream gridcells, instantaneous (m3/s)
+      real(r8), intent(in)  :: erlateral ! lateral flow from hillslope [m3/s]
+      real(r8), intent(in)  :: wr        ! storage of surface water, [m3]
+      real(r8), intent(in)  :: mr        ! cross section area, [m2]
+      real(r8), intent(in)  :: rr        ! hydraulic radius, [m]
+      real(r8), intent(in)  :: qgwl      ! gwl runoff term from glacier, wetlands and lakes, [m/s]
+      real(r8), intent(out) :: erin      ! inflow from upstream links, [m3/s]
+      real(r8), intent(out) :: erout     ! outflow into downstream links, [m3/s]
+      real(r8), intent(out) :: vr        ! flow velocity, [m/s]
+      real(r8), intent(out) :: dwr       ! cross section area, [m2]
 
       ! Local variables
       integer  :: k
-      real(r8) :: temp_gwl, temp_dwr, temp_gwl0
+      real(r8) :: temp_gwl
+
+      associate( &
+           roughl     => Tunit%nr  ,       & ! manning's roughness of the main reach
+           area       => Tunit%area,       &
+           areaTotal2 => Tunit%areaTotal2, &
+           frac       => Tunit%frac,       &
+           rlen       => Tunit%rlen,       &
+           rwidth     => Tunit%rwidth,     &
+           twidth     => Tunit%twidth,     &
+           rslpsqrt   => TUnit%rslpsqrt    &
+         )
 
       ! estimate the inflow from upstream units
-      TRunoff%erin(nr,nt) = 0._r8
-      TRunoff%erin(nr,nt) = TRunoff%erin(nr,nt) - TRunoff%eroutUp(nr,nt)
+      erin = 0._r8
+      erin = erin - eroutUp
 
-      ! estimate the outflow
-      if(TUnit%rlen(nr) <= 0._r8) then ! no river network, no channel routing
-         TRunoff%vr(nr,nt) = 0._r8
-         TRunoff%erout(nr,nt) = -TRunoff%erin(nr,nt)-TRunoff%erlateral(nr,nt)
+      ! estimate the outflow and flow velocity
+      if (rlen(nr) <= 0._r8) then ! no river network, no channel routing
+         vr = 0._r8
+         erout = -erin - erlateral
       else
-         if(TUnit%areaTotal2(nr)/TUnit%rwidth(nr)/TUnit%rlen(nr) > 1e6_r8) then
-            TRunoff%erout(nr,nt) = -TRunoff%erin(nr,nt)-TRunoff%erlateral(nr,nt)
+         if(areaTotal2(nr)/rwidth(nr)/rlen(nr) > 1e6_r8) then
+            erout = -erin - erlateral
          else
-            TRunoff%vr(nr,nt) = CRVRMAN_nosqrt(TUnit%rslpsqrt(nr), TUnit%nr(nr), TRunoff%rr(nr,nt))
-            TRunoff%erout(nr,nt) = -TRunoff%vr(nr,nt) * TRunoff%mr(nr,nt)
-            if(-TRunoff%erout(nr,nt) > TINYVALUE .and. TRunoff%wr(nr,nt) + &
-              (TRunoff%erlateral(nr,nt) + TRunoff%erin(nr,nt) + TRunoff%erout(nr,nt)) * theDeltaT < TINYVALUE) then
-               TRunoff%erout(nr,nt) = -(TRunoff%erlateral(nr,nt) + TRunoff%erin(nr,nt) + TRunoff%wr(nr,nt) / theDeltaT)
-               if(TRunoff%mr(nr,nt) > 0._r8) then
-                  TRunoff%vr(nr,nt) = -TRunoff%erout(nr,nt) / TRunoff%mr(nr,nt)
+            vr = CRVRMAN(rslpsqrt(nr), roughl(nr), rr)
+            erout = -vr * mr
+            if (-erout > TINYVALUE .and. wr + (erlateral + erin + erout) * DeltaT < TINYVALUE) then
+               erout = -(erlateral + erin + wr / DeltaT)
+               if (mr > 0._r8) then
+                  vr = -erout / mr
                end if
             end if
          end if
       end if
 
-      temp_gwl = TRunoff%qgwl(nr,nt) * TUnit%area(nr) * TUnit%frac(nr)
+      temp_gwl = qgwl * area(nr) * frac(nr)
+      dwr = erlateral + erin + erout + temp_gwl
 
-      TRunoff%dwr(nr,nt) = TRunoff%erlateral(nr,nt) + TRunoff%erin(nr,nt) + TRunoff%erout(nr,nt) + temp_gwl
-
-      if ((TRunoff%wr(nr,nt)/theDeltaT + TRunoff%dwr(nr,nt)) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
-         write(iulog,*) 'mosart: ERROR main channel going negative: ', nr, nt
-         write(iulog,*) theDeltaT, TRunoff%wr(nr,nt), TRunoff%wr(nr,nt)/theDeltaT, TRunoff%dwr(nr,nt), temp_gwl
+      if ((wr/DeltaT + dwr) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
+         write(iulog,*) 'mosart: ERROR main channel going negative: ', nr
+         write(iulog,*) DeltaT, wr, wr/DeltaT, dwr, temp_gwl
          write(iulog,*) ' '
       endif
 
       ! check for stability
-      !    if(TRunoff%vr(nr,nt) < -TINYVALUE .or. TRunoff%vr(nr,nt) > 30) then
-      !       write(iulog,*) "Numerical error inRouting_KW, ", nr,nt,TRunoff%vr(nr,nt)
+      !    if(vr < -TINYVALUE .or. vr > 30) then
+      !       write(iulog,*) "Numerical error inRouting_KW, ", nr,vr
       !    end if
 
       ! check for negative wr
-      !    if(TRunoff%wr(nr,nt) > 1._r8 .and. &
-      !      (TRunoff%wr(nr,nt)/theDeltaT + TRunoff%dwr(nr,nt))/TRunoff%wr(nr,nt) < -TINYVALUE) then
-      !       write(iulog,*) 'negative wr!', TRunoff%wr(nr,nt), TRunoff%dwr(nr,nt), temp_dwr, temp_gwl, temp_gwl0, theDeltaT
+      !    if(wr > 1._r8 .and. &
+      !      (wr/DeltaT + dwr)/wr < -TINYVALUE) then
+      !       write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
       !       stop
       !    end if
 
-   end subroutine Routing_KW
+      end associate
+   end subroutine MainchannelRouting
 
    !-----------------------------------------------------------------------
 
-   subroutine updateState_hillslope(nr,nt)
-      !  update the state variables at hillslope
+   subroutine updateState_hillslope(wh, yh)
+     !  update the state variables at hillslope
 
-      ! Arguments
-      integer, intent(in) :: nr, nt
+     ! Arguments
+     real(r8), intent(in)  :: wh ! storage of surface water, [m]
+     real(r8), intent(out) :: yh ! depth of surface water, [m]
 
-      TRunoff%yh(nr,nt) = TRunoff%wh(nr,nt) !/ TUnit%area(nr) / TUnit%frac(nr)
+     yh = wh !/ TUnit%area(nr) / TUnit%frac(nr)
 
    end subroutine updateState_hillslope
 
    !-----------------------------------------------------------------------
 
-   subroutine updateState_subnetwork(nr,nt)
+   subroutine updateState_subnetwork(nr, wt, mt, yt, pt, rt)
       !  update the state variables in subnetwork channel
 
       ! Arguments
-      integer, intent(in) :: nr,nt
+      integer , intent(in)  :: nr
+      real(r8), intent(in)  :: wt ! storage of surface water, [m3]
+      real(r8), intent(out) :: mt ! cross section area, [m2]
+      real(r8), intent(out) :: yt ! water depth, [m]
+      real(r8), intent(out) :: pt ! wetness perimeter, [m]
+      real(r8), intent(out) :: rt ! hydraulic radii, [m]
 
-      if(TUnit%tlen(nr) > 0._r8 .and. TRunoff%wt(nr,nt) > 0._r8) then
-         TRunoff%mt(nr,nt) = GRMR(TRunoff%wt(nr,nt), TUnit%tlen(nr))
-         TRunoff%yt(nr,nt) = GRHT(TRunoff%mt(nr,nt), TUnit%twidth(nr))
-         TRunoff%pt(nr,nt) = GRPT(TRunoff%yt(nr,nt), TUnit%twidth(nr))
-         TRunoff%rt(nr,nt) = GRRR(TRunoff%mt(nr,nt), TRunoff%pt(nr,nt))
+      associate( &
+           tlen   => TUnit%tlen,  &
+           twidth => Tunit%twidth &
+      )
+
+      if(tlen(nr) > 0._r8 .and. wt > 0._r8) then
+         mt = GRMR(wt, tlen(nr))
+         yt = GRHT(mt, twidth(nr))
+         pt = GRPT(yt, twidth(nr))
+         rt = GRRR(mt, pt)
       else
-         TRunoff%mt(nr,nt) = 0._r8
-         TRunoff%yt(nr,nt) = 0._r8
-         TRunoff%pt(nr,nt) = 0._r8
-         TRunoff%rt(nr,nt) = 0._r8
+         mt = 0._r8
+         yt = 0._r8
+         pt = 0._r8
+         rt = 0._r8
       end if
+
+      end associate
    end subroutine updateState_subnetwork
 
    !-----------------------------------------------------------------------
 
-   subroutine updateState_mainchannel(nr, nt)
+   subroutine updateState_mainchannel(nr, wr, mr, yr, pr, rr)
       !  update the state variables in main channel
 
       ! Arguments
-      integer, intent(in) :: nr, nt
+      integer, intent(in)   :: nr
+      real(r8), intent(in)  :: wr
+      real(r8), intent(out) :: mr
+      real(r8), intent(out) :: yr
+      real(r8), intent(out) :: pr
+      real(r8), intent(out) :: rr
 
-      if(TUnit%rlen(nr) > 0._r8 .and. TRunoff%wr(nr,nt) > 0._r8) then
-         TRunoff%mr(nr,nt) = GRMR(TRunoff%wr(nr,nt), TUnit%rlen(nr))
-         TRunoff%yr(nr,nt) = GRHR(TRunoff%mr(nr,nt), TUnit%rwidth(nr), TUnit%rwidth0(nr), TUnit%rdepth(nr))
-         TRunoff%pr(nr,nt) = GRPR(TRunoff%yr(nr,nt), TUnit%rwidth(nr), TUnit%rwidth0(nr), TUnit%rdepth(nr))
-         TRunoff%rr(nr,nt) = GRRR(TRunoff%mr(nr,nt), TRunoff%pr(nr,nt))
+      associate( &
+           rlen    => Tunit%rlen,    &
+           rwidth  => Tunit%rwidth,  &
+           rwidth0 => Tunit%rwidth0, &
+           rdepth  => Tunit%rdepth   &
+      )
+
+      if(TUnit%rlen(nr) > 0._r8 .and. wr > 0._r8) then
+         mr = GRMR(wr, rlen(nr))
+         yr = GRHR(mr, rwidth(nr), rwidth0(nr), rdepth(nr))
+         pr = GRPR(yr, rwidth(nr), rwidth0(nr), rdepth(nr))
+         rr = GRRR(mr, pr)
       else
-         TRunoff%mr(nr,nt) = 0._r8
-         TRunoff%yr(nr,nt) = 0._r8
-         TRunoff%pr(nr,nt) = 0._r8
-         TRunoff%rr(nr,nt) = 0._r8
+         mr = 0._r8
+         yr = 0._r8
+         pr = 0._r8
+         rr = 0._r8
       end if
+
+      end associate
    end subroutine updateState_mainchannel
 
    !-----------------------------------------------------------------------
 
-   function CRVRMAN_nosqrt(sqrtslp_, n_, rr_) result(v_)
+   function CRVRMAN(sqrtslp_, n_, rr_) result(v_)
       ! Function for calculating channel velocity according to Manning's equation.
 
       ! Arguments
-      real(r8), intent(in) :: sqrtslp_, n_, rr_ ! sqrt(slope), manning's roughness coeff., hydraulic radius
-      real(r8)             :: v_            ! v_ is  discharge
+      real(r8), intent(in) :: sqrtslp_ ! sqrt(slope)
+      real(r8), intent(in) :: n_       ! manning's roughness coeff.
+      real(r8), intent(in) :: rr_      ! hydraulic radius
+      real(r8)             :: v_       ! v_ is discharge
 
-      ! Local varaibles
-      real(r8) :: ftemp, vtemp
-
-      if(rr_ <= 0._r8) then
+      if (rr_ <= 0._r8) then
          v_ = 0._r8
       else
          v_ = ((rr_*rr_)**(1._r8/3._r8)) * sqrtslp_ / n_
       end if
 
-   end function CRVRMAN_nosqrt
+   end function CRVRMAN
 
    !-----------------------------------------------------------------------
 
-   function CREHT_nosqrt(sqrthslp_, nh_, Gxr_, yh_) result(eht_)
+   function CREHT(sqrthslp_, nh_, Gxr_, yh_) result(eht_)
       ! Function for overland from hillslope into the sub-network channels
 
       ! Arguments
-      real(r8), intent(in) :: sqrthslp_, nh_, Gxr_, yh_ ! topographic slope, manning's roughness coeff., drainage density, overland flow depth
-      real(r8)                   :: eht_            ! velocity, specific discharge
+      real(r8), intent(in) :: sqrthslp_ ! topographic slope
+      real(r8), intent(in) :: nh_       ! manning's roughness coeff.
+      real(r8), intent(in) :: Gxr_      ! drainage density
+      real(r8), intent(in) :: yh_       ! overland flow depth
+      real(r8)             :: eht_      ! velocity, specific discharge
 
+      ! Local variables
       real(r8) :: vh_
-      vh_ = CRVRMAN_nosqrt(sqrthslp_,nh_,yh_)
+
+      vh_ = CRVRMAN(sqrthslp_,nh_,yh_)
       eht_ = Gxr_*yh_*vh_
 
-   end function CREHT_nosqrt
+   end function CREHT
 
    !-----------------------------------------------------------------------
 
@@ -441,8 +574,9 @@ contains
       ! Function for estimate wetted channel area
 
       ! Arguments
-      real(r8), intent(in) :: wr_, rlen_      ! storage of water, channel length
-      real(r8)             :: mr_             ! wetted channel area
+      real(r8), intent(in) :: wr_   ! storage of water
+      real(r8), intent(in) :: rlen_ ! channel length
+      real(r8)             :: mr_   ! wetted channel area
 
       mr_ = wr_ / rlen_
    end function GRMR
@@ -569,5 +703,50 @@ contains
          end if
       end if
    end function GRPR
+
+   !-----------------------------------------------------------------------
+
+   subroutine mosart_physics_restart()
+
+      integer :: nt,nr
+
+      associate( &
+           ! ctl
+           begr        => ctl%begr,            &
+           endr        => ctl%endr,            &
+           ntracers    => ctl%ntracers_tot,    &
+           ! hillsloope states
+           wh          => TRunoff%wh,          & ! storage of surface water, [m]
+           yh          => TRunoff%wh,          & ! depth of surface water, [m]
+           ! subnetwork channel states
+           wt          => Trunoff%wt,          & ! storage of surface water, [m3]
+           yt          => Trunoff%yt,          & ! water depth, [m]
+           mt          => Trunoff%mt,          & ! cross section area, [m2]
+           pt          => Trunoff%pt,          & ! wetness perimeter, [m]
+           rt          => TRunoff%rt,          & ! hydraulic radii, [m]
+           ! main channel states
+           wr          => Trunoff%wr,          & ! storage of surface water, [m3]
+           mr          => Trunoff%mr,          & ! cross section area, [m2]
+           yr          => Trunoff%yr,          & ! water depth. [m]
+           pr          => Trunoff%pr,          & ! wetness perimeter, [m]
+           rr          => Trunoff%rr           & ! hydraulic radius, [m]
+      )
+
+      do nt = 1,ntracers
+         do nr = begr,endr
+            call UpdateState_hillslope(wh(nr,nt), &          ! input
+                 yh(nr,nt))                                  ! output
+            call UpdateState_subnetwork(nr, wt(nr,nt), &     ! input
+                 mt(nr,nt), yt(nr,nt), pt(nr,nt), rt(nr,nt)) ! output
+            call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
+                 mr(nr,nt), yr(nr,nt), pr(nr,nt), rr(nr,nt)) ! output
+            ctl%volr(nr,nt) = (wt(nr,nt) + wr(nr,nt) + wh(nr,nt)*ctl%area(nr))
+         enddo
+      enddo
+
+      end associate
+
+   end subroutine mosart_physics_restart
+
 
 end module mosart_physics
