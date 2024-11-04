@@ -77,12 +77,12 @@ module mosart_control_type
      real(r8), pointer :: dvolrdtlnd(:,:) => null()  ! dvolrdt masked for land (mm/s)
      real(r8), pointer :: dvolrdtocn(:,:) => null()  ! dvolrdt masked for ocn  (mm/s)
      real(r8), pointer :: volr(:,:) => null()        ! storage (m3)
-     real(r8), pointer :: fthresh(:) => null()       ! water flood threshold
+     real(r8), pointer :: fthresh(:) => null()       ! water volume flood threshold (m3)
 
      ! flux variables
      real(r8), pointer :: flow(:,:) => null()        ! stream flow out of gridcell (m3/s)
      real(r8), pointer :: evel(:,:) => null()        ! effective tracer velocity (m/s) NOT_USED
-     real(r8), pointer :: erout_prev(:,:) => null()  ! erout previous timestep (m3/s)
+     real(r8), pointer :: erout_prev(:,:) => null()  ! erout previous timestep (m3/s) - outflow into downstream links(?)
      real(r8), pointer :: eroutup_avg(:,:) => null() ! eroutup average over coupling period (m3/s)
      real(r8), pointer :: erlat_avg(:,:) => null()   ! erlateral average over coupling period (m3/s)
      real(r8), pointer :: effvel(:) => null()        ! effective velocity for a tracer NOT_USED
@@ -93,7 +93,7 @@ module mosart_control_type
      type(ESMF_Array)       :: lon_halo_array
      type(ESMF_Array)       :: lat_halo_array
      integer , pointer      :: halo_arrayptr_index(:,:) => null() ! index into halo_arrayptr that corresponds to a halo point
-     real(r8), pointer      :: fld_halo_arrayptr(:) => null()         ! preallocated memory for exclusive region plus halo
+     real(r8), pointer      :: fld_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
      real(r8), pointer      :: lon_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
      real(r8), pointer      :: lat_halo_arrayptr(:) => null()     ! preallocated memory for exclusive region plus halo
 
@@ -143,12 +143,19 @@ contains
 
     ! Arguments
     class(control_type) :: this
-    character(len=*), intent(in) :: lnd2rof_tracers
+    character(len=*), intent(in) :: lnd2rof_tracers ! nonH2O tracer names provided from land to MOSART
 
     ! Local variables
     integer :: nt           ! tracer index
     character(len=*),parameter :: subname = '(mosart_control_type: init_tracer_names)'
     !-----------------------------------------------------------------------
+
+    ! Hardwire tracer indices for default liquid water and ice
+    this%nt_liq = 1 ! liquid water
+    this%nt_ice = 2 ! ice
+
+    this%tracer_names(this%nt_liq) = 'LIQ'
+    this%tracer_names(this%nt_ice) = 'ICE'
 
     ! Determine number of tracers and array of tracer names
     if (lnd2rof_tracers /= ' ') then
@@ -156,22 +163,15 @@ contains
     else
        this%ntracers_nonh2o = 0
     end if
-    this%ntracers_tot = this%ntracers_nonh2o + 2 ! extra 1 for liquid water and ice
+    this%ntracers_tot = this%nt_ice + this%ntracers_nonh2o ! liquid water and ice + nonH2O tracers
 
     allocate(this%tracer_names(this%ntracers_tot))
-
-    ! Hardwire tracer indices for liquid water and ice
-    this%nt_liq = 1 ! liquid water
-    this%nt_ice = 2 ! ice
-
-    this%tracer_names(this%nt_liq) = 'LIQ'
-    this%tracer_names(this%nt_ice) = 'ICE'
 
     ! names of non-water liquid tracers
     do nt = 1,this%ntracers_nonh2o
       ! Below use nt+2 since the lnd2rof_tracers are only non-water
       ! liquid tracers and liquid water is the first tracer and ice is the second tracer
-      call shr_string_listGetName(lnd2rof_tracers, nt, this%tracer_names(nt+2))
+      call shr_string_listGetName(lnd2rof_tracers, nt, this%tracer_names(nt+this%nt_ice))
     end do
 
   end subroutine init_tracer_names
@@ -452,12 +452,12 @@ contains
     character(len=*)  , intent(in)  :: locfn      ! local routing filename
     character(len=*)  , intent(in)  :: decomp_option
     logical           , intent(in)  :: use_halo_option
-    integer           , intent(in)  :: nlon
-    integer           , intent(in)  :: nlat
-    integer           , intent(out) :: begr
-    integer           , intent(out) :: endr
-    integer           , intent(out) :: lnumr
-    integer           , intent(out) :: numr
+    integer           , intent(in)  :: nlon       ! number of longitude
+    integer           , intent(in)  :: nlat       ! number of latitude
+    integer           , intent(out) :: begr       ! local start index
+    integer           , intent(out) :: endr       ! local end index
+    integer           , intent(out) :: lnumr      ! local number of cells
+    integer           , intent(out) :: numr       ! number of global cells
     integer           , intent(out) :: IDkey(:)   ! translation key from ID to gindex
     integer           , intent(out) :: rc
 
