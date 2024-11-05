@@ -276,6 +276,7 @@
     <values>
       <value>.false.</value>
       <value mosart_debug="yes">.true.</value>
+      <value mosart_debug="no">.false.</value>
     </values>
     <desc>
       Default: .false.
