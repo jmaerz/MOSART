@@ -272,7 +272,7 @@ contains
                         if (debug_mosart) then
                           ! check for negative channel storage
                           if(wr(nr,1) < -1.e-10) then
-                            write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
+                            write(iulog,*) 'DEBUG: Negative channel storage! ', nr, wr(nr,1)
                             !call shr_sys_abort('mosart: negative channel storage')
                           end if
                         end if
@@ -295,10 +295,12 @@ contains
          call t_stopf('mosartr_chanroute')
       end do
 
-      ! check for negative channel storage
-      if (negchan < -1.e-10) then
-         write(iulog,*) 'Warning: Negative channel storage found! ',negchan
-         ! call shr_sys_abort('mosart: negative channel storage')
+      if (debug_mosart) then
+        ! check for negative channel storage
+        if (negchan < -1.e-10) then
+           write(iulog,*) 'DEBUG: Warning: Negative channel storage found! ',negchan
+           ! call shr_sys_abort('mosart: negative channel storage')
+        endif
       endif
       flow = flow / DLevelH2R
       erout_prev = erout_prev / DLevelH2R
@@ -364,7 +366,7 @@ contains
       if (debug_mosart) then
       ! check stability
         if(vt < -TINYVALUE .or. vt > 30) then
-          write(iulog,*) "Numerical error in subnetworkRouting, ", nr,vt
+          write(iulog,*) "DEBUG: Numerical error in subnetworkRouting, ", nr,vt
         end if
       endif
 
@@ -433,21 +435,21 @@ contains
       dwr = erlateral + erin + erout + temp_gwl
 
       if ((wr/DeltaT + dwr) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
-         write(iulog,*) 'mosart: ERROR main channel going negative: ', nr
+         write(iulog,*) 'DEBUG: mosart: ERROR main channel going negative: ', nr
          write(iulog,*) DeltaT, wr, wr/DeltaT, dwr, temp_gwl
          write(iulog,*) ' '
       endif
 
       if (debug_mosart) then
-      ! check for stability
+        ! check for stability
         if(vr < -TINYVALUE .or. vr > 30) then
-           write(iulog,*) "Numerical error inRouting_KW, ", nr,vr
+           write(iulog,*) "DEBUG: Numerical error inRouting_KW, ", nr,vr
         end if
 
-      ! check for negative wr
+        ! check for negative wr
         if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < -TINYVALUE) then
-           write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
-      !       stop
+           write(iulog,*) 'DEBUG: negative wr!', wr, dwr, temp_gwl, DeltaT
+        !       stop
         end if
       endif
       end associate

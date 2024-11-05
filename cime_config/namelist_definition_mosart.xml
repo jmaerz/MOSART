@@ -280,7 +280,7 @@
     </values>
     <desc>
       Default: .false.
-      This flag turned on will halt the model run, when strange values appear (i.e. negative water volumes)
+      This flag turned on will write out warnings, when strange values appear (i.e. negative water storage)
     </desc>
   </entry>
 
