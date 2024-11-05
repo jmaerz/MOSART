@@ -69,27 +69,27 @@ contains
 
       associate( &
            ! ctl
-           begr        => ctl%begr,            &
-           endr        => ctl%endr,            &
-           ntracers    => ctl%ntracers_tot,    &
+           begr        => ctl%begr,            & ! local start index
+           endr        => ctl%endr,            & ! local end index
+           ntracers    => ctl%ntracers_tot,    & ! total number of tracers
 
            ! tctl
-           deltat      => tctl%DeltaT,         &
-           DLevelH2R   => tctl%DLevelH2R,      &
+           deltat      => tctl%DeltaT,         & ! Time step [s]
+           DLevelH2R   => tctl%DLevelH2R,      & ! The base number of channel routing sub-time-steps within one hillslope routing step.
 
            ! Tunit
-           euler_calc  => Tunit%euler_calc,    &
-           area        => Tunit%area,          &
-           frac        => Tunit%frac,          &
-           mask        => Tunit%mask,          &
-           numDT_r     => Tunit%numDT_r,       &
-           numDT_t     => Tunit%numDT_t,       &
+           euler_calc  => Tunit%euler_calc,    & ! flag to calculate tracers in euler
+           area        => Tunit%area,          & ! area of local cell [m2]
+           frac        => Tunit%frac,          & ! fraction of cell included in the study area, [-]
+           mask        => Tunit%mask,          & ! mask for cell 0=null, 1=land with dnID, 2=outlet
+           numDT_r     => Tunit%numDT_r,       & ! for a main reach, the number of sub-time-steps needed for numerical stability
+           numDT_t     => Tunit%numDT_t,       & ! for a subnetwork reach, the number of sub-time-steps needed for numerical stability
 
            ! hillsloope
            !! states
            wh          => TRunoff%wh,          & ! storage of surface water, [m]
            dwh         => TRunoff%dwh,         & ! change of water storage, [m/s]
-           yh          => TRunoff%wh,          & ! depth of surface water, [m]
+           yh          => TRunoff%yh,          & ! depth of surface water, [m]
            wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]
            wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]
            qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s] NOT_USED
@@ -312,7 +312,7 @@ contains
       !  Hillslope routing considering uniform runoff generation across hillslope
 
       ! Arguments
-      integer , intent(in)  :: nr
+      integer , intent(in)  :: nr     ! index number to use
       real(r8), intent(in)  :: DeltaT ! Time step in seconds
       real(r8), intent(in)  :: yh     ! depth of surface water, [m]
       real(r8), intent(in)  :: wh     ! storage of surface water, [m]
@@ -334,8 +334,8 @@ contains
       !  subnetwork channel routing
 
       ! Arguments
-      integer , intent(in)  :: nr
-      real(r8), intent(in)  :: DeltaT
+      integer , intent(in)  :: nr    ! index number to use
+      real(r8), intent(in)  :: DeltaT! Time step [s]
       real(r8), intent(in)  :: rt    ! hydraulic radius, [m]
       real(r8), intent(in)  :: mt    ! cross section area, [m2]
       real(r8), intent(in)  :: wt    ! storage of surface water, [m3]
@@ -373,8 +373,8 @@ contains
       !  classic kinematic wave routing method
 
       ! Arguments
-      integer , intent(in)  :: nr
-      real(r8), intent(in)  :: DeltaT
+      integer , intent(in)  :: nr        ! index number to use
+      real(r8), intent(in)  :: DeltaT    ! time step [s]
       real(r8), intent(in)  :: eroutUp   ! outflow sum of upstream gridcells, instantaneous (m3/s)
       real(r8), intent(in)  :: erlateral ! lateral flow from hillslope [m3/s]
       real(r8), intent(in)  :: wr        ! storage of surface water, [m3]
@@ -392,13 +392,13 @@ contains
 
       associate( &
            roughl     => Tunit%nr  ,       & ! manning's roughness of the main reach
-           area       => Tunit%area,       &
-           areaTotal2 => Tunit%areaTotal2, &
-           frac       => Tunit%frac,       &
-           rlen       => Tunit%rlen,       &
-           rwidth     => Tunit%rwidth,     &
-           twidth     => Tunit%twidth,     &
-           rslpsqrt   => TUnit%rslpsqrt    &
+           area       => Tunit%area,       & ! area of the gridcell [m2]
+           areaTotal2 => Tunit%areaTotal2, & ! computed total upstream drainage area, [m2]
+           frac       => Tunit%frac,       & ! fraction of cell included in the study area, [-]
+           rlen       => Tunit%rlen,       & ! length of main river reach, [m]
+           rwidth     => Tunit%rwidth,     & ! bankfull width of main reach, [m]
+           twidth     => Tunit%twidth,     & ! bankfull width of the sub-reach, [m]
+           rslpsqrt   => TUnit%rslpsqrt    & !sqrt of slope of main river reach, [-]
          )
 
       ! estimate the inflow from upstream units
@@ -467,7 +467,7 @@ contains
       !  update the state variables in subnetwork channel
 
       ! Arguments
-      integer , intent(in)  :: nr
+      integer , intent(in)  :: nr ! index to use
       real(r8), intent(in)  :: wt ! storage of surface water, [m3]
       real(r8), intent(out) :: mt ! cross section area, [m2]
       real(r8), intent(out) :: yt ! water depth, [m]
@@ -500,18 +500,18 @@ contains
       !  update the state variables in main channel
 
       ! Arguments
-      integer, intent(in)   :: nr
-      real(r8), intent(in)  :: wr
-      real(r8), intent(out) :: mr
-      real(r8), intent(out) :: yr
-      real(r8), intent(out) :: pr
-      real(r8), intent(out) :: rr
+      integer, intent(in)   :: nr  ! index value to use
+      real(r8), intent(in)  :: wr  ! storage of surface water, [m3]
+      real(r8), intent(out) :: mr  ! cross section area, [m2]
+      real(r8), intent(out) :: yr  ! water depth. [m]
+      real(r8), intent(out) :: pr  ! wetness perimeter, [m]
+      real(r8), intent(out) :: rr  ! hydraulic radius, [m]
 
       associate( &
-           rlen    => Tunit%rlen,    &
-           rwidth  => Tunit%rwidth,  &
-           rwidth0 => Tunit%rwidth0, &
-           rdepth  => Tunit%rdepth   &
+           rlen    => Tunit%rlen,    & ! length of main river reach, [m]
+           rwidth  => Tunit%rwidth,  & ! bankfull width of main reach, [m]
+           rwidth0 => Tunit%rwidth0, & ! total width of the flood plain, [m]
+           rdepth  => Tunit%rdepth   & ! bankfull depth of river cross section, [m]
       )
 
       if(TUnit%rlen(nr) > 0._r8 .and. wr > 0._r8) then
@@ -535,10 +535,10 @@ contains
       ! Function for calculating channel velocity according to Manning's equation.
 
       ! Arguments
-      real(r8), intent(in) :: sqrtslp_ ! sqrt(slope)
-      real(r8), intent(in) :: n_       ! manning's roughness coeff.
-      real(r8), intent(in) :: rr_      ! hydraulic radius
-      real(r8)             :: v_       ! v_ is discharge
+      real(r8), intent(in) :: sqrtslp_ ! sqrt of average slope of tributaries, [-]
+      real(r8), intent(in) :: n_       ! manning's roughness coeff. [s/m^(1/3)]
+      real(r8), intent(in) :: rr_      ! hydraulic radius [m]
+      real(r8)             :: v_       ! v_ is discharge velocity [m/s]
 
       if (rr_ <= 0._r8) then
          v_ = 0._r8
@@ -554,11 +554,11 @@ contains
       ! Function for overland from hillslope into the sub-network channels
 
       ! Arguments
-      real(r8), intent(in) :: sqrthslp_ ! topographic slope
-      real(r8), intent(in) :: nh_       ! manning's roughness coeff.
-      real(r8), intent(in) :: Gxr_      ! drainage density
-      real(r8), intent(in) :: yh_       ! overland flow depth
-      real(r8)             :: eht_      ! velocity, specific discharge
+      real(r8), intent(in) :: sqrthslp_ ! sqrt of slope of hillslope, [-]
+      real(r8), intent(in) :: nh_       ! manning's roughness coeff. [s/m^(1/3)]
+      real(r8), intent(in) :: Gxr_      ! drainage density within the cell, [1/m]
+      real(r8), intent(in) :: yh_       ! depth of surface water, [m]
+      real(r8)             :: eht_      ! velocity, specific discharge [m/s]
 
       ! Local variables
       real(r8) :: vh_
@@ -574,9 +574,9 @@ contains
       ! Function for estimate wetted channel area
 
       ! Arguments
-      real(r8), intent(in) :: wr_   ! storage of water
-      real(r8), intent(in) :: rlen_ ! channel length
-      real(r8)             :: mr_   ! wetted channel area
+      real(r8), intent(in) :: wr_   ! storage of water [m3]
+      real(r8), intent(in) :: rlen_ ! channel length [m]
+      real(r8)             :: mr_   ! wetted channel area [m2]
 
       mr_ = wr_ / rlen_
    end function GRMR
@@ -587,8 +587,8 @@ contains
       ! Function for estimating water depth assuming rectangular channel
 
       ! Arguments
-      real(r8), intent(in) :: mt_, twid_      ! wetted channel area, channel width
-      real(r8)             :: ht_             ! water depth
+      real(r8), intent(in) :: mt_, twid_      ! wetted channel area [m2], channel width [m]
+      real(r8)             :: ht_             ! water depth [m]
 
       if(mt_ <= TINYVALUE) then
          ht_ = 0._r8
@@ -603,8 +603,8 @@ contains
       ! Function for estimating wetted perimeter assuming rectangular channel
 
       ! Arguments
-      real(r8), intent(in) :: ht_, twid_      ! water depth, channel width
-      real(r8)             :: pt_             ! wetted perimeter
+      real(r8), intent(in) :: ht_, twid_      ! water depth [m], channel width [m]
+      real(r8)             :: pt_             ! wetted perimeter [m]
 
       if(ht_ <= TINYVALUE) then
          pt_ = 0._r8
@@ -619,8 +619,8 @@ contains
       ! Function for estimating hydraulic radius
 
       ! Arguments
-      real(r8), intent(in) :: mr_, pr_        ! wetted area and perimeter
-      real(r8)             :: rr_             ! hydraulic radius
+      real(r8), intent(in) :: mr_, pr_        ! wetted area [m2] and perimeter [m]
+      real(r8)             :: rr_             ! hydraulic radius [m]
 
       if(pr_ <= TINYVALUE) then
          rr_ = 0._r8
@@ -639,8 +639,8 @@ contains
       ! part 3 is a rectagular with the width rwid0
 
       ! Arguments
-      real(r8), intent(in) :: mr_, rwidth_, rwidth0_, rdepth_ ! wetted channel area, channel width, flood plain wid, water depth
-      real(r8)             :: hr_                             ! water depth
+      real(r8), intent(in) :: mr_, rwidth_, rwidth0_, rdepth_ ! wetted channel area [m2], channel width [m], flood plain width [m], water depth [m]
+      real(r8)             :: hr_                             ! water depth [m]
 
       ! Local variables
       real(r8) :: SLOPE1  ! slope of flood plain, TO DO
@@ -674,8 +674,8 @@ contains
       ! part 3 is a rectagular with the width rwid0
 
       ! Arguments
-      real(r8), intent(in) :: hr_, rwidth_, rwidth0_, rdepth_ ! wwater depth, channel width, flood plain wid, water depth
-      real(r8)             :: pr_                             ! water depth
+      real(r8), intent(in) :: hr_, rwidth_, rwidth0_, rdepth_ ! water depth [m], channel width [m], flood plain width [m], water depth [m]
+      real(r8)             :: pr_                             ! water depth [m]
 
       ! Local variables
       real(r8) :: SLOPE1  ! slope of flood plain, TO DO
@@ -712,12 +712,12 @@ contains
 
       associate( &
            ! ctl
-           begr        => ctl%begr,            &
-           endr        => ctl%endr,            &
-           ntracers    => ctl%ntracers_tot,    &
-           ! hillsloope states
+           begr        => ctl%begr,            & ! local index start
+           endr        => ctl%endr,            & ! local index end
+           ntracers    => ctl%ntracers_tot,    & ! total number of tracers
+           ! hillslope states
            wh          => TRunoff%wh,          & ! storage of surface water, [m]
-           yh          => TRunoff%wh,          & ! depth of surface water, [m]
+           yh          => TRunoff%yh,          & ! depth of surface water, [m]
            ! subnetwork channel states
            wt          => Trunoff%wt,          & ! storage of surface water, [m3]
            yt          => Trunoff%yt,          & ! water depth, [m]

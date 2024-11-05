@@ -19,7 +19,7 @@ module mosart_budget_type
       real(r8), pointer :: accum_glob(:)              ! Global budget accumulator (1e6 m3)
 
       ! budget terms per gridcell
-      real(r8), pointer :: beg_vol_grc(:, :)          ! volume begining of the timestep (m3)
+      real(r8), pointer :: beg_vol_grc(:, :)          ! volume beginning of the timestep (m3)
       real(r8), pointer :: end_vol_grc(:, :)          ! volume end of the timestep (m3)
       real(r8), pointer :: in_grc(:, :)               ! budget in terms (m3)
       real(r8), pointer :: out_grc(:, :)              ! budget out terms (m3)
@@ -27,7 +27,7 @@ module mosart_budget_type
       real(r8), pointer :: lag_grc(:, :)              ! euler erout lagged (m3)
 
       ! budget global terms
-      real(r8), pointer :: beg_vol_glob(:)            ! volume begining of the timestep (1e6 m3)
+      real(r8), pointer :: beg_vol_glob(:)            ! volume beginning of the timestep (1e6 m3)
       real(r8), pointer :: end_vol_glob(:)            ! volume end of the timestep (1e6 m3)
       real(r8), pointer :: in_glob(:)                 ! budget in terms (1e6 m3)
       real(r8), pointer :: out_glob(:)                ! budget out terms (1e6 m3)
@@ -123,8 +123,10 @@ contains
 
       ! Arguments
       class(budget_type)   :: this
-      integer, intent(in)  :: begr, endr, ntracers
-      real(r8), intent(in) :: dt
+      integer, intent(in)  :: begr        ! local start index
+      integer, intent(in)  :: endr        ! local end index
+      integer, intent (in) :: ntracers    ! total number of tracers (first two: liquid water and ice)
+      real(r8), intent(in) :: dt          ! (coupling) time step
 
       ! local variables
       integer :: nr, nt   !indices
@@ -137,12 +139,16 @@ contains
          do nt = 1, ntracers
             this%beg_vol_grc(nr, nt) = ctl%volr(nr, nt)
             if (nt == nt_ice) then
+               ! [m3] ice runoff from surface and glaciers
                this%in_grc(nr,nt) = (ctl%qsur_ice(nr) + ctl%qglc_ice(nr)) * dt
             else if (nt == nt_liq) then
+               ! [m3] liquid water runoff from surface, subsurface, galcier/wetland/lake, glacier liquid runoff
+               ! WHY NOT IRRIGATION FLOW: qirrig_liq?
                this%in_grc(nr,nt) = (ctl%qsur_liq(nr) + ctl%qsub_liq(nr) + ctl%qgwl_liq(nr) + ctl%qglc_liq(nr)) * dt
             else
                ! note nt-2 below since qsur_liq_nonh2o only refers to non-water tracers and the water tracers are the
                ! first two indices in the nt loop
+               ! seems like currently mass assumed (not concentration)
                this%in_grc(nr,nt) = (ctl%qsur_liq_nonh2o(nr,nt-2)) * dt
             end if
             ! this was for budget_terms(17)
@@ -172,11 +178,13 @@ contains
 
       ! Arguments
       class(budget_type)   :: this
-      integer, intent(in)  :: begr, endr, ntracers
-      real(r8), intent(in) :: dt
+      integer, intent(in)  :: begr      ! local start index
+      integer, intent(in)  :: endr      ! local end index
+      integer, intent(in)  :: ntracers  ! total number of tracers  (first two: liquid water and ice)
+      real(r8), intent(in) :: dt        ! (coupling) time step
 
       ! Local variables
-      integer  :: nr, nt                ! indecies
+      integer  :: nr, nt                ! indices
       integer  :: nt_liq                ! h2o liquid index
       integer  :: nt_ice                ! ice index
       integer  :: yr,mon,day,ymd,tod    ! time vars
@@ -195,24 +203,24 @@ contains
       nt_ice = ctl%nt_ice
       do nr = begr, endr
          do nt = 1, ntracers
-            this%end_vol_grc(nr, nt) = ctl%volr(nr, nt)
-            this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%direct(nr, nt)
+            this%end_vol_grc(nr, nt) = ctl%volr(nr, nt)                           ! [m3]   storage volume
+            this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%direct(nr, nt)      ! [m3/s] base terms
             if (nt == nt_liq) then
-               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt)
-               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%flood(nr)
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt) ! [m3/s] direct liquid glacier flow to outlet
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%flood(nr)         ! [m3/s] flood water to coupler
             end if
             if (nt == nt_ice) then
-               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt)
+               this%out_grc(nr,nt) = this%out_grc(nr, nt) + ctl%direct_glc(nr,nt) ! [m3/s] direct ice glacier flow to outlets
             end if
             if (ctl%mask(nr) >= 2) then
-               this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%runoff(nr, nt)
+               this%out_grc(nr, nt) = this%out_grc(nr, nt) + ctl%runoff(nr, nt)   ! [m3/s] count in runoff flow to ocean or outlet
             else
-               this%lag_grc(nr, nt) = this%lag_grc(nr, nt) - ctl%erout_prev(nr, nt) - ctl%flow(nr, nt)
+               this%lag_grc(nr, nt) = this%lag_grc(nr, nt) - ctl%erout_prev(nr, nt) - ctl%flow(nr, nt) ! [m3/s]  remove outflow from previous time step and (current?) outflow from gridcell
             end if
             this%out_grc(nr,nt) = this%out_grc(nr,nt) * dt
             this%lag_grc(nr,nt) = this%lag_grc(nr,nt) * dt
-            this%net_grc(nr,nt) = this%end_vol_grc(nr,nt) - this%beg_vol_grc(nr,nt) - (this%in_grc(nr,nt)-this%out_grc(nr,nt))
-            this%accum_grc(nr,nt) = this%accum_grc(nr,nt) + this%net_grc(nr,nt)
+            this%net_grc(nr,nt) = this%end_vol_grc(nr,nt) - this%beg_vol_grc(nr,nt) - (this%in_grc(nr,nt)-this%out_grc(nr,nt)) ! net budget
+            this%accum_grc(nr,nt) = this%accum_grc(nr,nt) + this%net_grc(nr,nt) ! accumulate over the run
          end do
       end do
 
@@ -239,13 +247,13 @@ contains
          this%net_glob(nt)     = tmp_glob(index_net_grc, nt)
          this%lag_glob(nt)     = tmp_glob(index_lag_grc, nt)
          if (this%do_budget(nt)) then
-            if (abs(this%net_glob(nt) - this%lag_glob(nt)*dt) > this%tolerance) then
+            if (abs(this%net_glob(nt) - this%lag_glob(nt)*dt) > this%tolerance) then ! absolute tolerance
                error_budget = .true.
                abserr = abs(this%net_glob(nt) - this%lag_glob(nt))
             end if
-            if (abs(this%net_glob(nt) + this%lag_glob(nt)) > 1e-6) then
+            if (abs(this%net_glob(nt) + this%lag_glob(nt)) > 1e-6) then ! Why '+'?, why not '*dt'? - if both, could be simplified to "if (error_budget) then"
                if (  abs(this%net_glob(nt) - this%lag_glob(nt)) &
-                    /abs(this%net_glob(nt) + this%lag_glob(nt)) > this%rel_tolerance) then
+                    /abs(this%net_glob(nt) + this%lag_glob(nt)) > this%rel_tolerance) then ! rel. tolerance
                   error_budget = .true.
                   relerr = abs(this%net_glob(nt) - this%lag_glob(nt)) /abs(this%net_glob(nt) + this%lag_glob(nt))
                end if

@@ -24,7 +24,7 @@ module mosart_vars
    real(r8) , parameter :: spval     = 1.e36_r8           ! special value for real data
    integer  , parameter :: ispval    = -9999              ! special value for int data
 
-   real(r8)             :: re = SHR_CONST_REARTH*0.001_r8 ! radius of earth (km)
+   real(r8)             :: re = SHR_CONST_REARTH*0.001_r8 ! radius of Earth (km)
 
    ! Run startup
    integer  , parameter :: nsrStartup  = 0 ! Startup from initial conditions
