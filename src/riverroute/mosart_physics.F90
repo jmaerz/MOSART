@@ -16,6 +16,7 @@ module mosart_physics
    use nuopc_shr_methods , only : chkerr
    use ESMF              , only : ESMF_FieldGet, ESMF_FieldSMM, ESMF_Finalize, &
                                   ESMF_SUCCESS, ESMF_END_ABORT, ESMF_TERMORDER_SRCSEQ
+   use mosart_driver     , only : debug_mosart
 
    implicit none
    private
@@ -268,11 +269,12 @@ contains
                              erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                                 ! output
                         wr(nr,nt) = wr(nr,nt) + dwr(nr,nt) * localDeltaT
 
-                        ! check for negative channel storage
-                        ! if(wr(nr,1) < -1.e-10) then
-                        !    write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
-                        !    call shr_sys_abort('mosart: negative channel storage')
-                        ! end if
+                        if (debug_mosart) then
+                          ! check for negative channel storage
+                          if(wr(nr,1) < -1.e-10) then
+                            write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
+                            !call shr_sys_abort('mosart: negative channel storage')
+                        end if
 
                         call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
                              mr(nr,nt), yr(nr,nt), pr(nr,nt), rr(nr,nt)) ! output
@@ -358,10 +360,12 @@ contains
       end if
       dwt = etin + etout
 
+      if (debug_mosart) then
       ! check stability
-      ! if(vt < -TINYVALUE .or. vt > 30) then
-      !    write(iulog,*) "Numerical error in subnetworkRouting, ", nr,vt
-      ! end if
+        if(vt < -TINYVALUE .or. vt > 30) then
+          write(iulog,*) "Numerical error in subnetworkRouting, ", nr,vt
+        end if
+      endif
 
    end subroutine subnetworkRouting
 
@@ -433,17 +437,17 @@ contains
          write(iulog,*) ' '
       endif
 
+      if (debug_mosart) then
       ! check for stability
-      !    if(vr < -TINYVALUE .or. vr > 30) then
-      !       write(iulog,*) "Numerical error inRouting_KW, ", nr,vr
-      !    end if
+        if(vr < -TINYVALUE .or. vr > 30) then
+           write(iulog,*) "Numerical error inRouting_KW, ", nr,vr
+        end if
 
       ! check for negative wr
-      !    if(wr > 1._r8 .and. &
-      !      (wr/DeltaT + dwr)/wr < -TINYVALUE) then
-      !       write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
+        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < -TINYVALUE) then
+           write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
       !       stop
-      !    end if
+        end if
 
       end associate
    end subroutine MainchannelRouting

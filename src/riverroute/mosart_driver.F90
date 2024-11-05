@@ -36,6 +36,7 @@ module mosart_driver
    implicit none
    private
 
+
    ! public member functions:
    public :: mosart_read_namelist ! Read in mosart namelist
    public :: mosart_init1         ! Initialize mosart grid
@@ -61,6 +62,9 @@ module mosart_driver
    character(len=CL) :: fnamer              ! name of netcdf restart file
 
    integer :: nt_liq, nt_ice                ! Index for liquid water and ice
+
+   ! debugging
+   logical, public :: debug_mosart = .false.
 
    character(*), parameter :: u_FILE_u = &
         __FILE__
@@ -90,7 +94,7 @@ contains
       namelist /mosart_inparm / frivinp, finidat, nrevsn, coupling_period, ice_runoff, &
            ndens, mfilt, nhtfrq, fincl1,  fincl2, fincl3, fexcl1,  fexcl2, fexcl3, &
            avgflag_pertape, decomp_option, bypass_routing_option, qgwl_runoff_option, &
-           use_halo_option, delt_mosart, budget_frq
+           use_halo_option, delt_mosart, budget_frq,debug_mosart
 
       ! Preset values
       ice_runoff  = .true.

@@ -14,7 +14,7 @@
     <desc option="FLOOD">MOSART model with flood:</desc>
   </description>
 
-  <entry id="COMP_ROF"> 
+  <entry id="COMP_ROF">
      <type>char</type>
      <valid_values>mosart</valid_values>
      <default_value>mosart</default_value>
@@ -70,6 +70,17 @@
     <file>env_run.xml</file>
     <desc>Simulation year to start from -- build-namelist options (currently not used)</desc>
   </entry>
+
+  <entry id="MOSART_DEBUG">
+    <type>char</type>
+    <valid_values>TRUE,FALSE</valid_values>
+    <default_value>FALSE</default_value>
+    <group>run_component_mosart</group>
+    <file>env_run.xml</file>
+    <desc>Debug mosart code</desc>
+  </entry>
+
+
   <help>
     =========================================
     MOSART naming conventions

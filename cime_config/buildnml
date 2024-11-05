@@ -57,6 +57,7 @@ def _create_namelists(case, confdir, inst_string, infile, nmlgen, data_list_path
     config['lnd_grid'] = case.get_value("LND_GRID")
     config['rof_ncpl'] = case.get_value("ROF_NCPL")
     config['simyr'] = case.get_value("MOSART_SIM_YEAR")
+    config['mosart_debug'] = "yes" if case.get_value("MOSART_DEBUG") == TRUE else "no"
 
     logger.debug("River Transport Model (MOSART) mode is %s ", config['mosart_mode'])
     logger.debug("  MOSART lnd grid is %s ", config['lnd_grid'])
