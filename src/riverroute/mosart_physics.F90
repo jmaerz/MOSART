@@ -10,7 +10,8 @@ module mosart_physics
    use shr_kind_mod      , only : r8 => shr_kind_r8
    use shr_const_mod     , only : SHR_CONST_REARTH, SHR_CONST_PI
    use shr_sys_mod       , only : shr_sys_abort
-   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof, bypass_routing_option
+   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof, bypass_routing_option,        &
+                                  debug_mosart
    use mosart_data       , only : Tctl, TUnit, TRunoff, TPara, ctl
    use perf_mod          , only : t_startf, t_stopf
    use nuopc_shr_methods , only : chkerr
@@ -268,11 +269,13 @@ contains
                              erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                                 ! output
                         wr(nr,nt) = wr(nr,nt) + dwr(nr,nt) * localDeltaT
 
-                        ! check for negative channel storage
-                        ! if(wr(nr,1) < -1.e-10) then
-                        !    write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
-                        !    call shr_sys_abort('mosart: negative channel storage')
-                        ! end if
+                        if (debug_mosart) then
+                          ! check for negative channel storage
+                          if(wr(nr,1) < -1.e-10) then
+                            write(iulog,*) 'DEBUG: Negative channel storage! ', nr, wr(nr,1)
+                            !call shr_sys_abort('mosart: negative channel storage')
+                          end if
+                        end if
 
                         call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
                              mr(nr,nt), yr(nr,nt), pr(nr,nt), rr(nr,nt)) ! output
@@ -292,10 +295,12 @@ contains
          call t_stopf('mosartr_chanroute')
       end do
 
-      ! check for negative channel storage
-      if (negchan < -1.e-10) then
-         write(iulog,*) 'Warning: Negative channel storage found! ',negchan
-         ! call shr_sys_abort('mosart: negative channel storage')
+      if (debug_mosart) then
+        ! check for negative channel storage
+        if (negchan < -1.e-10) then
+           write(iulog,*) 'DEBUG: Warning: Negative channel storage found! ',negchan
+           ! call shr_sys_abort('mosart: negative channel storage')
+        endif
       endif
       flow = flow / DLevelH2R
       erout_prev = erout_prev / DLevelH2R
@@ -358,10 +363,12 @@ contains
       end if
       dwt = etin + etout
 
+      if (debug_mosart) then
       ! check stability
-      ! if(vt < -TINYVALUE .or. vt > 30) then
-      !    write(iulog,*) "Numerical error in subnetworkRouting, ", nr,vt
-      ! end if
+        if(vt < -TINYVALUE .or. vt > 30) then
+          write(iulog,*) "DEBUG: Numerical error in subnetworkRouting, ", nr,vt
+        end if
+      endif
 
    end subroutine subnetworkRouting
 
@@ -428,23 +435,23 @@ contains
       dwr = erlateral + erin + erout + temp_gwl
 
       if ((wr/DeltaT + dwr) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
-         write(iulog,*) 'mosart: ERROR main channel going negative: ', nr
+         write(iulog,*) 'DEBUG: mosart: ERROR main channel going negative: ', nr
          write(iulog,*) DeltaT, wr, wr/DeltaT, dwr, temp_gwl
          write(iulog,*) ' '
       endif
 
-      ! check for stability
-      !    if(vr < -TINYVALUE .or. vr > 30) then
-      !       write(iulog,*) "Numerical error inRouting_KW, ", nr,vr
-      !    end if
+      if (debug_mosart) then
+        ! check for stability
+        if(vr < -TINYVALUE .or. vr > 30) then
+           write(iulog,*) "DEBUG: Numerical error inRouting_KW, ", nr,vr
+        end if
 
-      ! check for negative wr
-      !    if(wr > 1._r8 .and. &
-      !      (wr/DeltaT + dwr)/wr < -TINYVALUE) then
-      !       write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
-      !       stop
-      !    end if
-
+        ! check for negative wr
+        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < -TINYVALUE) then
+           write(iulog,*) 'DEBUG: negative wr!', wr, dwr, temp_gwl, DeltaT
+        !       stop
+        end if
+      endif
       end associate
    end subroutine MainchannelRouting
 

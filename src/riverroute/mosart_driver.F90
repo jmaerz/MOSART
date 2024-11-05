@@ -12,7 +12,8 @@ module mosart_driver
                                         frivinp, nsrContinue, nsrBranch, nsrStartup, nsrest, &
                                         inst_index, inst_suffix, inst_name, decomp_option, &
                                         bypass_routing_option, qgwl_runoff_option, barrier_timers, &
-                                        mainproc, npes, iam, mpicom_rof, budget_frq, isecspday
+                                        mainproc, npes, iam, mpicom_rof, budget_frq, isecspday,    &
+                                        debug_mosart
    use mosart_data             , only : ctl, Tctl, Tunit, TRunoff, Tpara
    use mosart_budget_type      , only : budget_type
    use mosart_fileutils        , only : getfil
@@ -35,6 +36,7 @@ module mosart_driver
 
    implicit none
    private
+
 
    ! public member functions:
    public :: mosart_read_namelist ! Read in mosart namelist
@@ -90,7 +92,7 @@ contains
       namelist /mosart_inparm / frivinp, finidat, nrevsn, coupling_period, ice_runoff, &
            ndens, mfilt, nhtfrq, fincl1,  fincl2, fincl3, fexcl1,  fexcl2, fexcl3, &
            avgflag_pertape, decomp_option, bypass_routing_option, qgwl_runoff_option, &
-           use_halo_option, delt_mosart, budget_frq
+           use_halo_option, delt_mosart, budget_frq,debug_mosart
 
       ! Preset values
       ice_runoff  = .true.

@@ -154,9 +154,6 @@ contains
     this%nt_liq = 1 ! liquid water
     this%nt_ice = 2 ! ice
 
-    this%tracer_names(this%nt_liq) = 'LIQ'
-    this%tracer_names(this%nt_ice) = 'ICE'
-
     ! Determine number of tracers and array of tracer names
     if (lnd2rof_tracers /= ' ') then
        this%ntracers_nonh2o = shr_string_listGetNum(lnd2rof_tracers)
@@ -166,6 +163,9 @@ contains
     this%ntracers_tot = this%nt_ice + this%ntracers_nonh2o ! liquid water and ice + nonH2O tracers
 
     allocate(this%tracer_names(this%ntracers_tot))
+    
+    this%tracer_names(this%nt_liq) = 'LIQ'
+    this%tracer_names(this%nt_ice) = 'ICE'
 
     ! names of non-water liquid tracers
     do nt = 1,this%ntracers_nonh2o

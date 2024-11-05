@@ -269,4 +269,19 @@
     </desc>
   </entry>
 
+  <entry id="debug_mosart" modify_via_xml="MOSART_DEBUG" >
+    <type>logical</type>
+    <category>mosart</category>
+    <group>mosart_inparm</group>
+    <values>
+      <value>.false.</value>
+      <value mosart_debug="yes">.true.</value>
+      <value mosart_debug="no">.false.</value>
+    </values>
+    <desc>
+      Default: .false.
+      This flag turned on will write out warnings, when strange values appear (i.e. negative water storage)
+    </desc>
+  </entry>
+
 </entry_id>
