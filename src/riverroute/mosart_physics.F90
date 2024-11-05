@@ -274,6 +274,7 @@ contains
                           if(wr(nr,1) < -1.e-10) then
                             write(iulog,*) 'Negative channel storage! ', nr, wr(nr,1)
                             !call shr_sys_abort('mosart: negative channel storage')
+                          end if
                         end if
 
                         call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
@@ -448,7 +449,7 @@ contains
            write(iulog,*) 'negative wr!', wr, dwr, temp_gwl, DeltaT
       !       stop
         end if
-
+      endif
       end associate
    end subroutine MainchannelRouting
 
