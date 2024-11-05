@@ -10,13 +10,13 @@ module mosart_physics
    use shr_kind_mod      , only : r8 => shr_kind_r8
    use shr_const_mod     , only : SHR_CONST_REARTH, SHR_CONST_PI
    use shr_sys_mod       , only : shr_sys_abort
-   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof, bypass_routing_option
+   use mosart_vars       , only : iulog, barrier_timers, mpicom_rof, bypass_routing_option,        &
+                                  debug_mosart
    use mosart_data       , only : Tctl, TUnit, TRunoff, TPara, ctl
    use perf_mod          , only : t_startf, t_stopf
    use nuopc_shr_methods , only : chkerr
    use ESMF              , only : ESMF_FieldGet, ESMF_FieldSMM, ESMF_Finalize, &
                                   ESMF_SUCCESS, ESMF_END_ABORT, ESMF_TERMORDER_SRCSEQ
-   use mosart_driver     , only : debug_mosart
 
    implicit none
    private

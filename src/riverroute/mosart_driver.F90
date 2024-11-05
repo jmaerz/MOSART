@@ -12,7 +12,8 @@ module mosart_driver
                                         frivinp, nsrContinue, nsrBranch, nsrStartup, nsrest, &
                                         inst_index, inst_suffix, inst_name, decomp_option, &
                                         bypass_routing_option, qgwl_runoff_option, barrier_timers, &
-                                        mainproc, npes, iam, mpicom_rof, budget_frq, isecspday
+                                        mainproc, npes, iam, mpicom_rof, budget_frq, isecspday,    &
+                                        debug_mosart
    use mosart_data             , only : ctl, Tctl, Tunit, TRunoff, Tpara
    use mosart_budget_type      , only : budget_type
    use mosart_fileutils        , only : getfil
@@ -62,9 +63,6 @@ module mosart_driver
    character(len=CL) :: fnamer              ! name of netcdf restart file
 
    integer :: nt_liq, nt_ice                ! Index for liquid water and ice
-
-   ! debugging
-   logical, public :: debug_mosart = .false.
 
    character(*), parameter :: u_FILE_u = &
         __FILE__
