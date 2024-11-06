@@ -146,6 +146,7 @@ contains
       call mpi_bcast (fincl3, (max_namlen+2)*size(fincl3), MPI_CHARACTER, 0, mpicom_rof, ier)
       call mpi_bcast (avgflag_pertape, size(avgflag_pertape), MPI_CHARACTER, 0, mpicom_rof, ier)
       call mpi_bcast (budget_frq, 1, MPI_INTEGER, 0, mpicom_rof, ier)
+      call mpi_bcast (debug_mosart, 1, MPI_LOGICAL, 0, mpicom_rof, ier)
 
       ! lnd2rof liquid tracers (liquid tracers OTHER than water)
       ! coupling the land input of tracers other than standard water to MOSART
