@@ -71,16 +71,6 @@
     <desc>Simulation year to start from -- build-namelist options (currently not used)</desc>
   </entry>
 
-  <entry id="MOSART_DEBUG">
-    <type>char</type>
-    <valid_values>TRUE,FALSE</valid_values>
-    <default_value>FALSE</default_value>
-    <group>run_component_mosart</group>
-    <file>env_run.xml</file>
-    <desc>Debug mosart code</desc>
-  </entry>
-
-
   <help>
     =========================================
     MOSART naming conventions
