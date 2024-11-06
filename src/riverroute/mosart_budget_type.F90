@@ -190,7 +190,8 @@ contains
       integer  :: yr,mon,day,ymd,tod    ! time vars
       real(r8) :: tmp_in(6, ntracers)   ! array to pass to mpi_sum
       real(r8) :: tmp_glob(6, ntracers) ! array from mpi_sum
-      logical  :: error_budget          ! flag for an error
+      logical  :: error_budget_abs      ! flag for an absolute error
+      logical  :: error_budget_rel      ! flag for an realtive error
       real(r8) :: abserr, relerr
       !-------------------------------------------------
 
@@ -237,7 +238,8 @@ contains
       call shr_mpi_sum(tmp_in, tmp_glob, mpicom_rof, 'mosart global budget', all=.false.)
 
       do nt = 1, ntracers
-         error_budget = .false.
+         error_budget_abs = .false.
+         error_budget_rel = .false.
          abserr = 0.0_r8
          relerr = 0.0_r8
          this%beg_vol_glob(nt) = tmp_glob(index_beg_vol_grc, nt)
@@ -248,13 +250,13 @@ contains
          this%lag_glob(nt)     = tmp_glob(index_lag_grc, nt)
          if (this%do_budget(nt)) then
             if (abs(this%net_glob(nt) - this%lag_glob(nt)*dt) > this%tolerance) then ! absolute tolerance
-               error_budget = .true.
+               error_budget_abs = .true.
                abserr = abs(this%net_glob(nt) - this%lag_glob(nt))
             end if
             if (abs(this%net_glob(nt) + this%lag_glob(nt)) > 1e-6) then ! Why '+'?, why not '*dt'? - if both, could be simplified to "if (error_budget) then"
                if (  abs(this%net_glob(nt) - this%lag_glob(nt)) &
                     /abs(this%net_glob(nt) + this%lag_glob(nt)) > this%rel_tolerance) then ! rel. tolerance
-                  error_budget = .true.
+                  error_budget_rel = .true.
                   relerr = abs(this%net_glob(nt) - this%lag_glob(nt)) /abs(this%net_glob(nt) + this%lag_glob(nt))
                end if
             end if
@@ -272,8 +274,11 @@ contains
               write (iulog, '(a,f22.6,a)') '   eul erout lag               = ', this%lag_glob(nt), '(mil m3)'
               write (iulog, '(a,f22.6)')   '   absolute budget error       = ', abserr
               write (iulog, '(a,f22.6)')   '   relative budget error       = ', relerr
-              if (error_budget) then
-                  write(iulog,'(a)')       '   BUDGET OUT OF BALANCE WARNING   '
+              if (error_budget_abs) then
+                  write(iulog,'(a)')       '   BUDGET OUT OF BALANCE WARNING (abs)   '
+              endif
+              if (error_budget_rel) then
+                  write(iulog,'(a)')       '   BUDGET OUT OF BALANCE WARNING (rel)   '
               endif
               write (iulog, '(a)')         '-----------------------------------'
             end if
