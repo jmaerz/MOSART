@@ -249,31 +249,30 @@ contains
          this%net_glob(nt)     = tmp_glob(index_net_grc, nt)
          this%lag_glob(nt)     = tmp_glob(index_lag_grc, nt)
          if (this%do_budget(nt)) then
-            if (abs(this%net_glob(nt) - this%lag_glob(nt)*dt) > this%tolerance) then ! absolute tolerance
+            if (abs(this%net_glob(nt) - this%lag_glob(nt)) > this%tolerance) then ! absolute tolerance
                error_budget_abs = .true.
                abserr = abs(this%net_glob(nt) - this%lag_glob(nt))
-            end if
-            if (abs(this%net_glob(nt) + this%lag_glob(nt)) > 1e-6) then ! Why '+'?, why not '*dt'? - if both, could be simplified to "if (error_budget) then"
-               if (  abs(this%net_glob(nt) - this%lag_glob(nt)) &
-                    /abs(this%net_glob(nt) + this%lag_glob(nt)) > this%rel_tolerance) then ! rel. tolerance
+               if (abs(this%net_glob(nt) - this%lag_glob(nt)) &
+                   /(abs(this%net_glob(nt) + this%lag_glob(nt))+epsilon(1._r8)) > this%rel_tolerance) then ! rel. tolerance
                   error_budget_rel = .true.
-                  relerr = abs(this%net_glob(nt) - this%lag_glob(nt)) /abs(this%net_glob(nt) + this%lag_glob(nt))
+                  relerr = abs(this%net_glob(nt) - this%lag_glob(nt))                              &
+                           /(abs(this%net_glob(nt) + this%lag_glob(nt))+epsilon(1._r8))
                end if
             end if
             if (mainproc) then
               write (iulog, '(a)')         '-----------------------------------'
               write (iulog, '(a)')         '*****MOSART BUDGET DIAGNOSTICS*****'
               write (iulog,'(a,i10,i6)')   '   diagnostics for ', ymd, tod
-              write (iulog, '(a,i4,2a)')   '   tracer                      = ', nt, '  ', ctl%tracer_names(nt)
-              write (iulog, '(a,f22.6,a)') '   time step size              = ', dt, ' sec'
-              write (iulog, '(a,f22.6,a)') '   volume begining of the step = ', this%beg_vol_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   volume end of the step      = ', this%end_vol_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   inputs                      = ', this%in_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   outputs                     = ', this%out_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   net budget (dv -i + o)      = ', this%net_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   eul erout lag               = ', this%lag_glob(nt), '(mil m3)'
-              write (iulog, '(a,f22.6)')   '   absolute budget error       = ', abserr
-              write (iulog, '(a,f22.6)')   '   relative budget error       = ', relerr
+              write (iulog, '(a,i4,2a)')   '   tracer                    = ', nt, '  ', ctl%tracer_names(nt)
+              write (iulog, '(a,f22.6,a)') '   time step size            = ', dt, ' sec'
+              write (iulog, '(a,f22.6,a)') '   volume start of the step  = ', this%beg_vol_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   volume end of the step    = ', this%end_vol_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   inputs                    = ', this%in_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   outputs                   = ', this%out_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   net budget (dv -i + o)    = ', this%net_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   eul erout lag             = ', this%lag_glob(nt), ' (mil m3)'
+              write (iulog, '(a,f22.6,a)') '   absolute budget error     = ', abserr*1e6_r8, ' (m3)'
+              write (iulog, '(a,f22.6,a)') '   relative budget error     = ', relerr*100_r8, ' (%)'
               if (error_budget_abs) then
                   write(iulog,'(a)')       '   BUDGET OUT OF BALANCE WARNING (abs)   '
               endif
