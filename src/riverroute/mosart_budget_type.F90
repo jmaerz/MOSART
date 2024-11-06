@@ -249,7 +249,7 @@ contains
          this%net_glob(nt)     = tmp_glob(index_net_grc, nt)
          this%lag_glob(nt)     = tmp_glob(index_lag_grc, nt)
          if (this%do_budget(nt)) then
-            if (abs(this%net_glob(nt) - this%lag_glob(nt)*dt) > this%tolerance) then ! absolute tolerance
+            if (abs(this%net_glob(nt) - this%lag_glob(nt)) > this%tolerance) then ! absolute tolerance
                error_budget_abs = .true.
                abserr = abs(this%net_glob(nt) - this%lag_glob(nt))
             end if
@@ -271,7 +271,7 @@ contains
               write (iulog, '(a,f22.6,a)') '   inputs                      = ', this%in_glob(nt), ' (mil m3)'
               write (iulog, '(a,f22.6,a)') '   outputs                     = ', this%out_glob(nt), ' (mil m3)'
               write (iulog, '(a,f22.6,a)') '   net budget (dv -i + o)      = ', this%net_glob(nt), ' (mil m3)'
-              write (iulog, '(a,f22.6,a)') '   eul erout lag               = ', this%lag_glob(nt), '(mil m3)'
+              write (iulog, '(a,f22.6,a)') '   eul erout lag               = ', this%lag_glob(nt), ' (mil m3)'
               write (iulog, '(a,f22.6)')   '   absolute budget error       = ', abserr
               write (iulog, '(a,f22.6)')   '   relative budget error       = ', relerr
               if (error_budget_abs) then
