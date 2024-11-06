@@ -272,7 +272,7 @@ contains
               write (iulog, '(a,f22.6,a)') '   net budget (dv -i + o)    = ', this%net_glob(nt), ' (mil m3)'
               write (iulog, '(a,f22.6,a)') '   eul erout lag             = ', this%lag_glob(nt), ' (mil m3)'
               write (iulog, '(a,f22.6,a)') '   absolute budget error     = ', abserr*1e6_r8, ' (m3)'
-              write (iulog, '(a,f22.6)')   '   relative budget error     = ', relerr
+              write (iulog, '(a,f22.6,a)') '   relative budget error     = ', relerr*100_r8, ' (%)'
               if (error_budget_abs) then
                   write(iulog,'(a)')       '   BUDGET OUT OF BALANCE WARNING (abs)   '
               endif
