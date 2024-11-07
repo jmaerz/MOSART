@@ -271,7 +271,7 @@ contains
 
                         if (debug_mosart) then
                           ! check for negative channel storage
-                          if(wr(nr,1) < -1.e-10) then
+                          if(wr(nr,1) < 0._r8) then
                             write(iulog,*) 'DEBUG: Negative channel storage! ', nr, wr(nr,1)
                             !call shr_sys_abort('mosart: negative channel storage')
                           end if
@@ -297,7 +297,7 @@ contains
 
       if (debug_mosart) then
         ! check for negative channel storage
-        if (negchan < -1.e-10) then
+        if (negchan < 0._r8) then
            write(iulog,*) 'DEBUG: Warning: Negative channel storage found! ',negchan
            ! call shr_sys_abort('mosart: negative channel storage')
         endif
@@ -365,8 +365,8 @@ contains
 
       if (debug_mosart) then
       ! check stability
-        if(vt < -TINYVALUE .or. vt > 30) then
-          write(iulog,*) "DEBUG: Numerical error in subnetworkRouting, ", nr,vt
+        if(vt < 0._r8 .or. vt > 30) then
+          write(iulog,*) "DEBUG: Numerical error in subnetworkRouting flow velocity, ", nr,vt
         end if
       endif
 
@@ -434,7 +434,7 @@ contains
       temp_gwl = qgwl * area(nr) * frac(nr)
       dwr = erlateral + erin + erout + temp_gwl
 
-      if ((wr/DeltaT + dwr) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
+      if ((wr/DeltaT + dwr) < 0._r8 .and. (trim(bypass_routing_option)/='none') ) then
          write(iulog,*) 'DEBUG: mosart: ERROR main channel going negative: ', nr
          write(iulog,*) DeltaT, wr, wr/DeltaT, dwr, temp_gwl
          write(iulog,*) ' '
@@ -442,12 +442,12 @@ contains
 
       if (debug_mosart) then
         ! check for stability
-        if(vr < -TINYVALUE .or. vr > 30) then
-           write(iulog,*) "DEBUG: Numerical error inRouting_KW, ", nr,vr
+        if(vr < 0._r8 .or. vr > 30) then
+           write(iulog,*) "DEBUG: Numerical error inRouting_KW flow velocity, ", nr,vr
         end if
 
         ! check for negative wr
-        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < -TINYVALUE) then
+        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < 0._r8) then
            write(iulog,*) 'DEBUG: negative wr!', wr, dwr, temp_gwl, DeltaT
         !       stop
         end if
