@@ -40,7 +40,7 @@ module mosart_vars
    character(len=CS)  :: qgwl_runoff_option     ! method for handling qgwl runoff
    integer            :: budget_frq = -24       ! budget check frequency
    ! debugging
-   logical            :: debug_mosart = .false.
+   integer            :: debug_mosart = 0
 
    ! Metadata variables used in history and restart generation
    character(len=CL)  :: caseid  = ' '          ! case id

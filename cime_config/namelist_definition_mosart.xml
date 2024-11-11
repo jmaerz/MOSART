@@ -269,18 +269,15 @@
     </desc>
   </entry>
 
-  <entry id="debug_mosart" modify_via_xml="MOSART_DEBUG" >
-    <type>logical</type>
+  <entry id="debug_mosart">
+    <type>integer</type>
     <category>mosart</category>
     <group>mosart_inparm</group>
     <values>
-      <value>.false.</value>
-      <value mosart_debug="yes">.true.</value>
-      <value mosart_debug="no">.false.</value>
+      <value>0</value>
     </values>
     <desc>
-      Default: .false.
-      This flag turned on will write out warnings, when strange values appear (i.e. negative water storage)
+      0 => no debug output, 1 => more debug output triggered, 2 => highest level of debug output
     </desc>
   </entry>
 

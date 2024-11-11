@@ -269,7 +269,7 @@ contains
                              erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                                 ! output
                         wr(nr,nt) = wr(nr,nt) + dwr(nr,nt) * localDeltaT
 
-                        if (debug_mosart) then
+                        if (debug_mosart >= 1) then
                           ! check for negative channel storage
                           if(wr(nr,1) < 0._r8) then
                             write(iulog,*) 'DEBUG: Negative channel storage! ', nr, wr(nr,1)
@@ -295,7 +295,7 @@ contains
          call t_stopf('mosartr_chanroute')
       end do
 
-      if (debug_mosart) then
+      if (debug_mosart >= 1) then
         ! check for negative channel storage
         if (negchan < 0._r8) then
            write(iulog,*) 'DEBUG: Warning: Negative channel storage found! ',negchan
@@ -363,10 +363,10 @@ contains
       end if
       dwt = etin + etout
 
-      if (debug_mosart) then
+      if (debug_mosart >= 2) then
       ! check stability
-        if(vt < 0._r8 .or. vt > 30) then
-          write(iulog,*) "DEBUG: Numerical error in subnetworkRouting flow velocity, ", nr,vt
+        if (vt < 0._r8 .or. vt > 30) then
+           write(iulog,*) "DEBUG: Numerical error in subnetworkRouting flow velocity, ", nr,vt
         end if
       endif
 
@@ -440,7 +440,7 @@ contains
          write(iulog,*) ' '
       endif
 
-      if (debug_mosart) then
+      if (debug_mosart >= 1) then
         ! check for stability
         if(vr < 0._r8 .or. vr > 30) then
            write(iulog,*) "DEBUG: Numerical error inRouting_KW flow velocity, ", nr,vr

@@ -92,7 +92,7 @@ contains
       namelist /mosart_inparm / frivinp, finidat, nrevsn, coupling_period, ice_runoff, &
            ndens, mfilt, nhtfrq, fincl1,  fincl2, fincl3, fexcl1,  fexcl2, fexcl3, &
            avgflag_pertape, decomp_option, bypass_routing_option, qgwl_runoff_option, &
-           use_halo_option, delt_mosart, budget_frq,debug_mosart
+           use_halo_option, delt_mosart, budget_frq, debug_mosart
 
       ! Preset values
       ice_runoff  = .true.
@@ -146,7 +146,7 @@ contains
       call mpi_bcast (fincl3, (max_namlen+2)*size(fincl3), MPI_CHARACTER, 0, mpicom_rof, ier)
       call mpi_bcast (avgflag_pertape, size(avgflag_pertape), MPI_CHARACTER, 0, mpicom_rof, ier)
       call mpi_bcast (budget_frq, 1, MPI_INTEGER, 0, mpicom_rof, ier)
-      call mpi_bcast (debug_mosart, 1, MPI_LOGICAL, 0, mpicom_rof, ier)
+      call mpi_bcast (debug_mosart, 1, MPI_integer, 0, mpicom_rof, ier)
 
       ! lnd2rof liquid tracers (liquid tracers OTHER than water)
       ! coupling the land input of tracers other than standard water to MOSART
@@ -172,6 +172,7 @@ contains
          write(iulog,'(a,l1)') '   use_halo_optoin         = ',use_halo_option
          write(iulog,'(a)'   ) '   bypass_routing option   = '//trim(bypass_routing_option)
          write(iulog,'(a)'   ) '   qgwl runoff option      = '//trim(qgwl_runoff_option)
+         write(iulog,'(a,i2)') '   debug level             = ',debug_mosart
          if (ctl%ntracers_liq == 1) then
             write(iulog,'(a)'   ) '   non-water liquid  tracers = none'
          else
