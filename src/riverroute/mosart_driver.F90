@@ -169,7 +169,7 @@ contains
          write(iulog,'(a,i8)') '   coupling_period         = ',coupling_period
          write(iulog,'(a,i8)') '   delt_mosart             = ',delt_mosart
          write(iulog,'(a)'   ) '   decomp option           = '//trim(decomp_option)
-         write(iulog,'(a,l1)') '   use_halo_optoin         = ',use_halo_option
+         write(iulog,'(a,l1)') '   use_halo_option         = ',use_halo_option
          write(iulog,'(a)'   ) '   bypass_routing option   = '//trim(bypass_routing_option)
          write(iulog,'(a)'   ) '   qgwl runoff option      = '//trim(qgwl_runoff_option)
          write(iulog,'(a,i2)') '   debug level             = ',debug_mosart
@@ -393,6 +393,7 @@ contains
       !
       ! Local variables
       integer            :: i, j, n, nr, ns, nt, n2, nf ! indices
+      integer            :: ntracers_tot                ! Total number of tracers: liq,ice,nonH2O
       logical            :: budget_check                ! if budget check needs to be performed
       real(r8)           :: volr_init                   ! temporary storage to compute dvolrdt
       integer            :: yr, mon, day, ymd, tod      ! time information
@@ -469,7 +470,7 @@ contains
       !-----------------------------------
       ! initialize data for liquid transport via euler solver, in m3/s here
       !-----------------------------------
-
+      ntracers_tot = ctl%ntracers_tot
       do nr = begr,endr
          TRunoff%qsur(nr,nt_liq) = ctl%qsur_liq(nr)
          TRunoff%qsur(nr,nt_ice) = ctl%qsur_ice(nr)
@@ -478,9 +479,13 @@ contains
          TRunoff%qgwl(nr,nt_liq) = ctl%qgwl_liq(nr)
          TRunoff%qgwl(nr,nt_ice) = 0._r8
          do nt = 1,ctl%ntracers_nonh2o
-            TRunoff%qsur(nr,nt+2) = ctl%qsur_liq_nonh2o(nr,nt)
-            TRunoff%qsub(nr,nt+2) = 0._r8
-            TRunoff%qgwl(nr,nt+2) = 0._r8
+            ! For now, we here consider that land fluxes beyond standard water
+            ! are in units of either kg/s, g/s or mol/s or similar
+            ! - so make sure once the land side is coupled
+            ! that unit conversion is carried out properly!
+            TRunoff%qsur(nr,nt+ctl%nt_ice) = ctl%qsur_liq_nonh2o(nr,nt)
+            TRunoff%qsub(nr,nt+ctl%nt_ice) = 0._r8
+            TRunoff%qgwl(nr,nt+ctl%nt_ice) = 0._r8
          enddo
       enddo
 
@@ -818,7 +823,9 @@ contains
       !-----------------------------------
 
       ! convert TRunoff fields from m3/s to m/s before calling Euler
-      do nt = 1,ntracers
+      ! for non-standard H2O tracers, this means mol/m2/s or kg/m2/s
+      ! to comply to how water is advected on hillslopes
+      do nt = 1,ntracers_tot
          do nr = begr,endr
             TRunoff%qsur(nr,nt) = TRunoff%qsur(nr,nt) / ctl%area(nr)
             TRunoff%qsub(nr,nt) = TRunoff%qsub(nr,nt) / ctl%area(nr)
@@ -863,7 +870,7 @@ contains
       ctl%erlat_avg   = ctl%erlat_avg   / float(nsub)
 
       !-----------------------------------
-      ! update states when subsycling completed
+      ! update states when subcycling completed
       !-----------------------------------
 
       ctl%runoff = 0._r8
