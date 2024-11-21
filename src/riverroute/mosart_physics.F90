@@ -94,52 +94,52 @@ contains
 
            ! hillsloope
            !! states
-           wh          => TRunoff%wh,          & ! storage of surface water, [m]
-           dwh         => TRunoff%dwh,         & ! change of water storage, [m/s]
+           wh          => TRunoff%wh,          & ! storage of surface water, [m] or tracer [kg/m2, mol/m2, or similar]
+           dwh         => TRunoff%dwh,         & ! change of water storage, [m/s] or tracer [kg/m2/s, mol/m2/s, or similar]
            yh          => TRunoff%yh,          & ! depth of surface water, [m]
-           wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]
-           wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]
-           qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s] NOT_USED
-           qdunne      => Trunoff%qdunne,      & ! Saturation excess runoff generated from hillslope, [m/s] NOT_USED
+           wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]    - NOT USED
+           wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]  - NOT USED
+           qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s]         - NOT_USED
+           qdunne      => Trunoff%qdunne,      & ! Saturation excess runoff generated from hillslope, [m/s]           - NOT_USED
            qsur        => Trunoff%qsur,        & ! Surface runoff generated from hillslope, [m/s]
            qsub        => Trunoff%qsub,        & ! Subsurface runoff generated from hillslope, [m/s]
            qgwl        => Trunoff%qgwl,        & ! gwl runoff term from glacier, wetlands and lakes, [m/s]
            !! fluxes
-           ehout       => Trunoff%ehout,       & ! overland flow from hillslope into the sub-channel, [m/s]
+           ehout       => Trunoff%ehout,       & ! overland flow from hillslope into the sub-channel, water [m/s] or tarcers [kg/m2/s, mol/m2/s, or similar]
 
            ! subnetwork channel
            !! states
            tarea       => Trunoff%tarea,       & ! area of channel water surface, [m2]
-           wt          => Trunoff%wt,          & ! storage of surface water, [m3]
-           dwt         => Trunoff%dwt,         & ! change of water storage, [m3]
+           wt          => Trunoff%wt,          & ! storage of surface water, [m3] or tracer [kg, mol, or similar]
+           dwt         => Trunoff%dwt,         & ! change of water storage, [m3/s] or tracer [kg/s, mol/s, or similar]
            yt          => Trunoff%yt,          & ! water depth, [m]
            mt          => Trunoff%mt,          & ! cross section area, [m2]
            pt          => Trunoff%pt,          & ! wetness perimeter, [m]
            vt          => Trunoff%vt,          & ! flow velocity, [m/s]
            rt          => TRunoff%rt,          & ! hydraulic radii, [m]
            !! fluxes
-           etin        => Trunoff%etin,        & ! lateral inflow from hillslope [m3/s]
-           etout       => Trunoff%etout,       & ! discharge from sub-network into the main reach, [m3/s]
+           etin        => Trunoff%etin,        & ! lateral water [m3/s] or tracer [kg/s, mol/s or similar] inflow from hillslope
+           etout       => Trunoff%etout,       & ! water [ m3/s] or tracer [kg/s, mol/s or similar] discharge from sub-network into the main reach
 
            ! main channel
            !! states
            rarea       => Trunoff%rarea,       & ! area of channel water surface, [m2]
-           wr          => Trunoff%wr,          & ! storage of surface water, [m3]
-           dwr         => Trunoff%dwr,         & ! change of water storage, [m3]
+           wr          => Trunoff%wr,          & ! storage of surface water, [m3] or tracer [kg, mol, or similar]
+           dwr         => Trunoff%dwr,         & ! change of water storage, [m3] or tracer [kg/s, mol/s or similar]
            yr          => Trunoff%yr,          & ! water depth. [m]
            mr          => Trunoff%mr,          & ! cross section area, [m2]
            rr          => Trunoff%rr,          & ! hydraulic radius, [m]
            pr          => Trunoff%pr,          & ! wetness perimeter, [m]
            vr          => Trunoff%vr,          & ! flow velocity, [m/s]
            !! exchange fluxes
-           erlateral   => Trunoff%erlateral,   & ! lateral flow from hillslope [m3/s]
-           erin        => Trunoff%erin,        & ! inflow from upstream links, [m3/s]
-           erout       => Trunoff%erout,       & ! outflow into downstream links, [m3/s]
-           erout_prev  => Trunoff%erout_prev,  & ! outflow into downstream links from previous timestep, [m3/s]
-           eroutUp     => Trunoff%eroutUp,     & ! outflow sum of upstream gridcells, instantaneous (m3/s)
-           eroutUp_avg => Trunoff%eroutUp_avg, & ! outflow sum of upstream gridcells, average [m3/s]
-           erlat_avg   => Trunoff%erlat_avg,   & ! erlateral average [m3/s]
-           flow        => Trunoff%flow         & ! streamflow from the outlet of the reach, [m3/s]
+           erlateral   => Trunoff%erlateral,   & ! lateral water flow [m3/s] or tracer [kg/s, mol/s or similar] from hillslope
+           erin        => Trunoff%erin,        & ! inflow from upstream links, water [m3/s] or tracer [kg/s, mol/s or similar]
+           erout       => Trunoff%erout,       & ! outflow into downstream links, water [m3/s] or tracer [kg/s, mol/s or similar]
+           erout_prev  => Trunoff%erout_prev,  & ! outflow into downstream links from previous timestep, water [m3/s] or tracer [kg/s, mol/s or similar]
+           eroutUp     => Trunoff%eroutUp,     & ! outflow sum of upstream gridcells, instantaneous water [m3/s] or tracer [kg/s, mol/s or similar]
+           eroutUp_avg => Trunoff%eroutUp_avg, & ! outflow sum of upstream gridcells, average water [m3/s] or tracer [kg/s, mol/s or similar]
+           erlat_avg   => Trunoff%erlat_avg,   & ! erlateral average water [m3/s] or tracer [kg/s, mol/s or similar]
+           flow        => Trunoff%flow         & ! streamflow from the outlet of the reach, water [m3/s] or tracer [kg/s, mol/s or similar]
       )
 
       allocate(temp_erout(ntracers))
