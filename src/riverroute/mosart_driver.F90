@@ -385,7 +385,8 @@ contains
       ! Run mosart river routing model
       !
       ! Arguments
-      integer          , intent(in)  :: begr, endr, ntracers
+      integer          , intent(in)  :: begr, endr
+      integer          , intent(in)  :: ntracers ! total number of tracers (liq,ice, nonH2O, if applicable)
       logical          , intent(in)  :: rstwr ! true => write restart file this step)
       logical          , intent(in)  :: nlend ! true => end of run on this step
       character(len=*) , intent(in)  :: rdate ! restart file time stamp for name
@@ -393,7 +394,6 @@ contains
       !
       ! Local variables
       integer            :: i, j, n, nr, ns, nt, n2, nf ! indices
-      integer            :: ntracers_tot                ! Total number of tracers: liq,ice,nonH2O
       logical            :: budget_check                ! if budget check needs to be performed
       real(r8)           :: volr_init                   ! temporary storage to compute dvolrdt
       integer            :: yr, mon, day, ymd, tod      ! time information
@@ -470,7 +470,6 @@ contains
       !-----------------------------------
       ! initialize data for liquid transport via euler solver, in m3/s here
       !-----------------------------------
-      ntracers_tot = ctl%ntracers_tot
       do nr = begr,endr
          TRunoff%qsur(nr,nt_liq) = ctl%qsur_liq(nr)
          TRunoff%qsur(nr,nt_ice) = ctl%qsur_ice(nr)
@@ -825,7 +824,7 @@ contains
       ! convert TRunoff fields from m3/s to m/s before calling Euler
       ! for non-standard H2O tracers, this means mol/m2/s or kg/m2/s
       ! to comply to how water is advected on hillslopes
-      do nt = 1,ntracers_tot
+      do nt = 1,ntracers
          do nr = begr,endr
             TRunoff%qsur(nr,nt) = TRunoff%qsur(nr,nt) / ctl%area(nr)
             TRunoff%qsub(nr,nt) = TRunoff%qsub(nr,nt) / ctl%area(nr)
