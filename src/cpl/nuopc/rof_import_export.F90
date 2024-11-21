@@ -99,11 +99,6 @@ contains
     if (isPresent .and. isSet) read(cvalue,*) flds_r2l_stream_channel_depths
 
     call fldlist_add(fldsFrRof_num, fldsFrRof, trim(flds_scalar_name))
-    if (ntracers_nonh2o > 1) then
-       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o', ungridded_lbound=1, ungridded_ubound=ntracers_nonh2o)
-    else if (ntracers_nonh2o == 1) then
-       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o')
-    end if
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofi')
     call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_glc')
@@ -114,6 +109,11 @@ contains
     if ( flds_r2l_stream_channel_depths )then
        call fldlist_add(fldsFrRof_num, fldsFrRof, 'Sr_tdepth')
        call fldlist_add(fldsFrRof_num, fldsFrRof, 'Sr_tdepth_max')
+    end if
+    if (ntracers_nonh2o > 1) then
+       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o', ungridded_lbound=1, ungridded_ubound=ntracers_nonh2o)
+    else if (ntracers_nonh2o == 1) then
+       call fldlist_add(fldsFrRof_num, fldsFrRof, 'Forr_rofl_nonh2o')
     end if
 
     do n = 1,fldsFrRof_num
@@ -557,8 +557,16 @@ contains
              call ESMF_LogWrite(trim(subname)//trim(tag)//" Field = "//trim(stdname)//" is connected using mesh", &
                   ESMF_LOGMSG_INFO, rc=dbrc)
              ! Create the field
-             field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, rc=rc)
-             if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, line=__LINE__, file=u_FILE_u)) return
+             if (fldlist(n)%ungridded_lbound > 0 .and. fldlist(n)%ungridded_ubound > 0) then
+                field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, &
+                     ungriddedLbound=(/fldlist(n)%ungridded_lbound/), &
+                     ungriddedUbound=(/fldlist(n)%ungridded_ubound/), &
+                     gridToFieldMap=(/2/), rc=rc)
+                if (ChkErr(rc,__LINE__,u_FILE_u)) return
+             else
+                field = ESMF_FieldCreate(mesh, ESMF_TYPEKIND_R8, name=stdname, meshloc=ESMF_MESHLOC_ELEMENT, rc=rc)
+                if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, line=__LINE__, file=u_FILE_u)) return
+             end if
           endif
 
           ! NOW call NUOPC_Realize
@@ -697,8 +705,10 @@ contains
          fldptr2d(nt,:) = fldptr2d(nt,:) * med2mod_areacor(:)
       end do
     end if
-    do nr = begr,endr
-       output(nr,nt) = fldptr2d(nt,nr-begr+1) * area(nr)*0.001_r8
+    do nt = 1,ntracers
+       do nr = begr,endr
+          output(nr,nt) = fldptr2d(nt,nr-begr+1) * area(nr)*0.001_r8
+       end do
     end do
 
     ! check for nans
