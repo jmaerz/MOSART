@@ -146,6 +146,10 @@ contains
       allocate(this%euler_calc(ntracers))
       this%euler_calc(:) = .true.
       this%euler_calc(nt_ice) = .false.
+      if (ntracers > nt_ice) then
+        ! assume all other tracers are non-standard-H2O tracers
+        this%euler_calc(nt_ice:ntracers) = .false.
+      endif
 
       allocate(this%frac(begr:endr))
       ier = pio_inq_varid(ncid, name='frac', vardesc=vardesc)

@@ -277,7 +277,10 @@
       <value>0</value>
     </values>
     <desc>
-      0 => no debug output, 1 => more debug output triggered, 2 => highest level of debug output
+      0 => no debug output,
+      1 => debug output triggered for water storage,
+      2 => debug output for advected tracers included (if applicable),
+      3 => highest level of debug output
     </desc>
   </entry>
 

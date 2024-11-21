@@ -41,7 +41,9 @@ module mosart_physics
    private :: GRRR    ! Function for estimating hydraulic radius
    private :: GRPR    ! Function for estimating maximum water depth assuming rectangular channel and tropezoidal flood plain
 
-   real(r8), parameter :: TINYVALUE = 1.0e-14_r8 ! double precision variable has a significance of about 16 decimal digits
+   real(r8), parameter :: TINYVALUE = 1.0e-14_r8    ! double precision variable has a significance of about 16 decimal digits
+   real(r8), parameter :: limiter_advec = 0.9999_r8 ! limit advection to maximum close to 1 of available storage(+inflow),
+                                                    ! courant number cn=1 leads to numerical precision issues (small negative values)
    real(r8), parameter :: SLOPE1def = 0.1_r8     ! here give it a small value in order to avoid the abrupt change of hydraulic radidus etc.
    real(r8)            :: sinatanSLOPE1defr      ! 1.0/sin(atan(slope1))
 
@@ -60,11 +62,12 @@ contains
       integer, intent(out) :: rc
 
       ! Local variables
-      integer           :: nt, nr, m, k, unitUp, cnt, ier   !local index
-      real(r8)          :: temp_erout, localDeltaT
+      integer           :: nt, nr, nt_nonh2o, m, k, unitUp, cnt, ier   !local index
+      real(r8)          :: localDeltaT
       real(r8)          :: negchan
       real(r8), pointer :: src_eroutUp(:,:)
       real(r8), pointer :: dst_eroutUp(:,:)
+      real(r8),allocatable :: temp_erout(:)
 
       rc = ESMF_SUCCESS
 
@@ -73,6 +76,9 @@ contains
            begr        => ctl%begr,            & ! local start index
            endr        => ctl%endr,            & ! local end index
            ntracers    => ctl%ntracers_tot,    & ! total number of tracers
+           ntracers_nonH2O=>ctl%ntracers_nonh2o,& ! number of non-standard H2O tracers
+           nt_liq      => ctl%nt_liq,          & ! index for liquid water
+           nt_ice      => ctl%nt_ice,          & ! index for ice
 
            ! tctl
            deltat      => tctl%DeltaT,         & ! Time step [s]
@@ -88,67 +94,97 @@ contains
 
            ! hillsloope
            !! states
-           wh          => TRunoff%wh,          & ! storage of surface water, [m]
-           dwh         => TRunoff%dwh,         & ! change of water storage, [m/s]
+           wh          => TRunoff%wh,          & ! storage of surface water, [m] or tracer [kg/m2, mol/m2, or similar]
+           dwh         => TRunoff%dwh,         & ! change of water storage, [m/s] or tracer [kg/m2/s, mol/m2/s, or similar]
            yh          => TRunoff%yh,          & ! depth of surface water, [m]
-           wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]
-           wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]
-           qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s] NOT_USED
-           qdunne      => Trunoff%qdunne,      & ! Saturation excess runoff generated from hillslope, [m/s] NOT_USED
+           wsat        => Trunoff%wsat,        & ! storage of surface water within saturated area at hillslope [m]    - NOT USED
+           wunsat      => Trunoff%wunsat,      & ! storage of surface water within unsaturated area at hillslope [m]  - NOT USED
+           qhorton     => Trunoff%qhorton,     & ! Infiltration excess runoff generated from hillslope, [m/s]         - NOT_USED
+           qdunne      => Trunoff%qdunne,      & ! Saturation excess runoff generated from hillslope, [m/s]           - NOT_USED
            qsur        => Trunoff%qsur,        & ! Surface runoff generated from hillslope, [m/s]
            qsub        => Trunoff%qsub,        & ! Subsurface runoff generated from hillslope, [m/s]
            qgwl        => Trunoff%qgwl,        & ! gwl runoff term from glacier, wetlands and lakes, [m/s]
            !! fluxes
-           ehout       => Trunoff%ehout,       & ! overland flow from hillslope into the sub-channel, [m/s]
+           ehout       => Trunoff%ehout,       & ! overland flow from hillslope into the sub-channel, water [m/s] or tarcers [kg/m2/s, mol/m2/s, or similar]
 
            ! subnetwork channel
            !! states
            tarea       => Trunoff%tarea,       & ! area of channel water surface, [m2]
-           wt          => Trunoff%wt,          & ! storage of surface water, [m3]
-           dwt         => Trunoff%dwt,         & ! change of water storage, [m3]
+           wt          => Trunoff%wt,          & ! storage of surface water, [m3] or tracer [kg, mol, or similar]
+           dwt         => Trunoff%dwt,         & ! change of water storage, [m3/s] or tracer [kg/s, mol/s, or similar]
            yt          => Trunoff%yt,          & ! water depth, [m]
            mt          => Trunoff%mt,          & ! cross section area, [m2]
            pt          => Trunoff%pt,          & ! wetness perimeter, [m]
            vt          => Trunoff%vt,          & ! flow velocity, [m/s]
            rt          => TRunoff%rt,          & ! hydraulic radii, [m]
            !! fluxes
-           etin        => Trunoff%etin,        & ! lateral inflow from hillslope [m3/s]
-           etout       => Trunoff%etout,       & ! discharge from sub-network into the main reach, [m3/s]
+           etin        => Trunoff%etin,        & ! lateral water [m3/s] or tracer [kg/s, mol/s or similar] inflow from hillslope
+           etout       => Trunoff%etout,       & ! water [ m3/s] or tracer [kg/s, mol/s or similar] discharge from sub-network into the main reach
 
            ! main channel
            !! states
            rarea       => Trunoff%rarea,       & ! area of channel water surface, [m2]
-           wr          => Trunoff%wr,          & ! storage of surface water, [m3]
-           dwr         => Trunoff%dwr,         & ! change of water storage, [m3]
+           wr          => Trunoff%wr,          & ! storage of surface water, [m3] or tracer [kg, mol, or similar]
+           dwr         => Trunoff%dwr,         & ! change of water storage, [m3] or tracer [kg/s, mol/s or similar]
            yr          => Trunoff%yr,          & ! water depth. [m]
            mr          => Trunoff%mr,          & ! cross section area, [m2]
            rr          => Trunoff%rr,          & ! hydraulic radius, [m]
            pr          => Trunoff%pr,          & ! wetness perimeter, [m]
            vr          => Trunoff%vr,          & ! flow velocity, [m/s]
            !! exchange fluxes
-           erlateral   => Trunoff%erlateral,   & ! lateral flow from hillslope [m3/s]
-           erin        => Trunoff%erin,        & ! inflow from upstream links, [m3/s]
-           erout       => Trunoff%erout,       & ! outflow into downstream links, [m3/s]
-           erout_prev  => Trunoff%erout_prev,  & ! outflow into downstream links from previous timestep, [m3/s]
-           eroutUp     => Trunoff%eroutUp,     & ! outflow sum of upstream gridcells, instantaneous (m3/s)
-           eroutUp_avg => Trunoff%eroutUp_avg, & ! outflow sum of upstream gridcells, average [m3/s]
-           erlat_avg   => Trunoff%erlat_avg,   & ! erlateral average [m3/s]
-           flow        => Trunoff%flow         & ! streamflow from the outlet of the reach, [m3/s]
+           erlateral   => Trunoff%erlateral,   & ! lateral water flow [m3/s] or tracer [kg/s, mol/s or similar] from hillslope
+           erin        => Trunoff%erin,        & ! inflow from upstream links, water [m3/s] or tracer [kg/s, mol/s or similar]
+           erout       => Trunoff%erout,       & ! outflow into downstream links, water [m3/s] or tracer [kg/s, mol/s or similar]
+           erout_prev  => Trunoff%erout_prev,  & ! outflow into downstream links from previous timestep, water [m3/s] or tracer [kg/s, mol/s or similar]
+           eroutUp     => Trunoff%eroutUp,     & ! outflow sum of upstream gridcells, instantaneous water [m3/s] or tracer [kg/s, mol/s or similar]
+           eroutUp_avg => Trunoff%eroutUp_avg, & ! outflow sum of upstream gridcells, average water [m3/s] or tracer [kg/s, mol/s or similar]
+           erlat_avg   => Trunoff%erlat_avg,   & ! erlateral average water [m3/s] or tracer [kg/s, mol/s or similar]
+           flow        => Trunoff%flow         & ! streamflow from the outlet of the reach, water [m3/s] or tracer [kg/s, mol/s or similar]
       )
+
+      allocate(temp_erout(ntracers))
 
       !------------------
       ! hillslope
       !------------------
 
       call t_startf('mosartr_hillslope')
-      do nt = 1,ntracers
+      do nt = 1,ntracers ! could be simplified to nt=1 and no if(euler_calc)
          if (euler_calc(nt)) then
             do nr = begr,endr
                if (mask(nr) > 0) then
-                  call hillslopeRouting(nr, DeltaT, yh(nr,nt), wh(nr,nt), qsur(nr,nt), ehout(nr,nt), dwh(nr,nt))
+                  ! Liquid water flow - calculate time differences
+                  call hillslopeRouting(nr, DeltaT, yh(nr,nt), wh(nr,nt), qsur(nr,nt),             & ! input
+                                        ehout(nr,nt), dwh(nr,nt))                                    ! ouput
+
+                  ! Advect tracers with water flow - calculate time differences
+                  if (ntracers_nonH2O > 0 .and. nt == nt_liq) then
+                    do nt_nonh2o = nt_ice+1,nt_ice+ntracers_nonH2O
+                      call HSR_advect_tracers(nr,DeltaT,wh(nr,nt_liq),ehout(nr,nt_liq),            & ! water mass advection info
+                                              wh(nr,nt_nonh2o),qsur(nr,nt_nonh2o),                 & ! nonH2O storage and input
+                                              ehout(nr,nt_nonh2o),dwh(nr,nt_nonh2o))                 ! output (mass outflow & mass storage change)
+                      wh(nr,nt_nonh2o)  = wh(nr,nt_nonh2o) + dwh(nr,nt_nonh2o)*DeltaT                ! update mass storage [here kg/m2 or mol/m2]
+                      etin(nr,nt_nonh2o)= (-ehout(nr,nt_nonh2o)+qsub(nr,nt_nonh2o)) * area(nr) * frac(nr)  ! update lateral + surf + subsurf mass inflow [kg/s or mol/s]
+                      if (debug_mosart >= 2) then
+                        if (wh(nr,nt_nonh2o) <0._r8)then
+                            write(iulog,*) 'DEBUG: HSR Warning: Negative storage found! ',         &
+                                     nr,wh(nr,nt_nonh2o),dwh(nr,nt_nonh2o)*DeltaT,qsur(nr,nt_nonh2o)
+                        endif
+                      endif
+                    enddo
+                  endif ! end nonH2O
+
+                  ! Updating water storage and tracers to next time step
                   wh(nr,nt) = wh(nr,nt) + dwh(nr,nt) * DeltaT
                   call UpdateState_hillslope(wh(nr,nt), yh(nr,nt))
                   etin(nr,nt) = (-ehout(nr,nt) + qsub(nr,nt)) * area(nr) * frac(nr)
+                  if (debug_mosart >= 1) then
+                    ! check for negative hillslope storage
+                    if(wh(nr,1) < 0._r8) then
+                      write(iulog,*) 'DEBUG: Negative hillslope storage! ', nr, wh(nr,1)
+                      !call shr_sys_abort('mosart: negative hillslope storage')
+                    end if
+                  endif
                endif
             end do
          endif
@@ -176,11 +212,9 @@ contains
 
          ! accumulate/average erout at prior timestep (used in eroutUp calc) for budget analysis
          do nt=1,ntracers
-            if (euler_calc(nt)) then
-               do nr=begr,endr
+           do nr=begr,endr
                   erout_prev(nr,nt) = erout_prev(nr,nt) + erout(nr,nt)
-               end do
-            end if
+           end do
          end do
 
          !------------------
@@ -190,19 +224,53 @@ contains
          call t_startf('mosartr_subnetwork')
          erlateral(:,:) = 0._r8
          do nt=1,ntracers
-            if (euler_calc(nt)) then
+            if (euler_calc(nt)) then ! could be simplified to nt=1
                do nr = begr,endr
                   if (mask(nr) > 0) then
                      localDeltaT = DeltaT/DLevelH2R/numDT_t(nr)
                      do k = 1,numDT_t(nr)
-                        call subnetworkRouting(nr, localDeltaT, rt(nr,nt), mt(nr,nt), wt(nr,nt), etin(nr,nt), & ! input
-                             etout(nr,nt), vt(nr,nt), dwt(nr,nt))                                               ! output
+                        ! Liquid water flow - calculate time differences
+                        call subnetworkRouting(nr, localDeltaT, rt(nr,nt), mt(nr,nt),              & ! input
+                                               wt(nr,nt), etin(nr,nt),                             & ! input
+                                               etout(nr,nt), vt(nr,nt), dwt(nr,nt))                  ! output
+
+                        ! Advect tracers with water flow - calculate time differences
+                        if (ntracers_nonH2O > 0 .and. nt == nt_liq) then
+                          do nt_nonh2o = nt_ice+1,nt_ice+ntracers_nonH2O
+                            call SNR_advect_tracers(nr,localDeltaT,wt(nr,nt_liq),etout(nr,nt_liq), & ! water mass advection info
+                                                    wt(nr,nt_nonh2o),etin(nr,nt_nonh2o),           & ! nonH2O storage and input
+                                                    etout(nr,nt_nonh2o),dwt(nr,nt_nonh2o))           ! output (mass outflow & mass storage change)
+                            wt(nr,nt_nonh2o)  = wt(nr,nt_nonh2o) + dwt(nr,nt_nonh2o)*localDeltaT     ! update mass storage [here: kg or mol]
+                            erlateral(nr,nt_nonh2o)= erlateral(nr,nt_nonh2o) - etout(nr,nt_nonh2o)   ! update lateral + surf + subsurf mass inflow [kg/s or mol/s]
+                            if (debug_mosart >= 2) then
+                              if (wt(nr,nt_nonh2o) < 0._r8)then
+                               write(iulog,*) 'DEBUG: SNR Warning: Negative storage found! ',      &
+                                          nr,wt(nr,nt_nonh2o),dwt(nr,nt_nonh2o)*localDeltaT,       &
+                                          etin(nr,nt_nonh2o),etout(nr,nt_nonh2o)
+                              endif
+                            endif
+                          enddo
+                        endif ! end nonH2O
+
+                        ! Updating water storage and tracers to next time step
                         wt(nr,nt) = wt(nr,nt) + dwt(nr,nt) * localDeltaT
-                        call UpdateState_subnetwork(nr, wt(nr,nt), &     ! input
-                             mt(nr,nt), yt(nr,nt), pt(nr,nt), rt(nr,nt)) ! output
+                        if (debug_mosart >= 1) then
+                          ! check for negative subnetwork storage
+                          if(wt(nr,1) < 0._r8) then
+                            write(iulog,*) 'DEBUG: Negative subnetwork storage! ', nr, wt(nr,1)
+                            !call shr_sys_abort('mosart: negative subnetwork storage')
+                          end if
+                        endif
+                        call UpdateState_subnetwork(nr, wt(nr,nt),                                 &     ! input
+                             mt(nr,nt), yt(nr,nt), pt(nr,nt), rt(nr,nt))                                 ! output
                         erlateral(nr,nt) = erlateral(nr,nt) - etout(nr,nt)
                      end do ! numDT_t
                      erlateral(nr,nt) = erlateral(nr,nt) / numDT_t(nr)
+                     if (ntracers_nonH2O > 0 .and. nt == nt_liq) then
+                        do nt_nonh2o = nt_ice+1,nt_ice+ntracers_nonH2O
+                          erlateral(nr,nt_nonh2o) = erlateral(nr,nt_nonh2o) / numDT_t(nr)
+                        end do
+                     endif
                   endif
                end do ! nr
             endif  ! euler_calc
@@ -255,6 +323,7 @@ contains
          !------------------
 
          call t_startf('mosartr_chanroute')
+
          do nt = 1,ntracers
             if (euler_calc(nt)) then
                do nr = begr,endr
@@ -262,16 +331,38 @@ contains
                      localDeltaT = DeltaT/DLevelH2R/numDT_r(nr)
                      temp_erout = 0._r8
                      do k = 1,numDT_r(nr)
+                        ! Liquid water flow - calculate time differences
+                        call mainchannelRouting(nr, localDeltaT,                                   & ! input
+                             eroutUp(nr,nt), erlateral(nr,nt),                                     & ! input
+                             wr(nr,nt),mr(nr,nt), rr(nr,nt), qgwl(nr,nt),                          & ! input
+                             erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                       ! output
 
-                        ! TODO: is it positive (wr) and negative afterwards
-                        call mainchannelRouting(nr, localDeltaT,&
-                             eroutUp(nr,nt), erlateral(nr,nt), wr(nr,nt), mr(nr,nt), rr(nr,nt), qgwl(nr,nt), & ! input
-                             erin(nr,nt), erout(nr,nt), vr(nr,nt), dwr(nr,nt))                                 ! output
+                        ! Advect tracers with water flow - calculate time differences
+                        if (ntracers_nonH2O > 0 .and. nt == nt_liq) then
+                          do nt_nonh2o = nt_ice+1,nt_ice+ntracers_nonH2O
+                            call MCR_advect_tracers(nr, localDeltaT,eroutUp(nr,nt_nonh2o),         & ! input
+                                                    erlateral(nr,nt_nonh2o),                       & ! input
+                                                    wr(nr,nt_liq), mr(nr,nt_liq), vr(nr,nt_liq),   & ! input
+                                                    rr(nr,nt_liq),                                 & ! input
+                                                    wr(nr,nt_nonh2o), qgwl(nr,nt_nonh2o),          & ! input
+                                                    erin(nr,nt_nonh2o),erout(nr,nt_nonh2o),        & ! output
+                                                    dwr(nr,nt_nonh2o))                               ! output
+                            wr(nr,nt_nonh2o)  = wr(nr,nt_nonh2o) + dwr(nr,nt_nonh2o)*localDeltaT     ! update mass storage [here: kg or mol]
+                            temp_erout(nt_nonh2o) = temp_erout(nt_nonh2o) + erout(nr,nt_nonh2o)
+                            if (debug_mosart >= 2) then
+                              if (wr(nr,nt_nonh2o) <0._r8)then
+                                write(iulog,*) 'DEBUG: MCR Warning: Negative storage found! ',     &
+                                        nr,wr(nr,nt_nonh2o),dwr(nr,nt_nonh2o)*localDeltaT
+                              endif
+                            endif
+                          enddo
+                        endif ! end nonH2O
+
+                        ! Updating water storage and tracers to next time step
                         wr(nr,nt) = wr(nr,nt) + dwr(nr,nt) * localDeltaT
-
                         if (debug_mosart >= 1) then
                           ! check for negative channel storage
-                          if(wr(nr,1) < -1.e-10) then
+                          if(wr(nr,1) < 0._r8) then
                             write(iulog,*) 'DEBUG: Negative channel storage! ', nr, wr(nr,1)
                             !call shr_sys_abort('mosart: negative channel storage')
                           end if
@@ -280,12 +371,19 @@ contains
                         call UpdateState_mainchannel(nr, wr(nr,nt), &    ! input
                              mr(nr,nt), yr(nr,nt), pr(nr,nt), rr(nr,nt)) ! output
 
-                        ! erout here might be inflow to some downstream subbasin, so treat it differently than erlateral
-                        temp_erout = temp_erout + erout(nr,nt)
+                        ! erout here might be inflow to some downstream subbasin,
+                        ! so treat it differently than erlateral
+                        temp_erout(nt) = temp_erout(nt) + erout(nr,nt)
                      end do
-                     temp_erout = temp_erout / numDT_r(nr)
-                     erout(nr,nt) = temp_erout
+                     temp_erout(nt) = temp_erout(nt) / numDT_r(nr)
+                     erout(nr,nt) = temp_erout(nt)
                      flow(nr,nt) = flow(nr,nt) - erout(nr,nt)
+                     if (ntracers_nonH2O > 0 .and. nt == nt_liq) then
+                       do nt_nonh2o = nt_ice+1,nt_ice+ntracers_nonH2O
+                         erout(nr,nt_nonh2o) = temp_erout(nt_nonh2o) /numDT_r(nr)
+                         flow(nr,nt_nonh2o) = flow(nr,nt_nonh2o) - erout(nr,nt_nonh2o)
+                       enddo
+                     endif
                   endif
                end do ! nr
             endif  ! euler_calc
@@ -293,19 +391,19 @@ contains
          negchan = min(negchan, minval(wr(:,:)))
 
          call t_stopf('mosartr_chanroute')
-      end do
+      end do ! DLevelH2R
 
       if (debug_mosart >= 1) then
         ! check for negative channel storage
-        if (negchan < -1.e-10) then
+        if (negchan < 0._r8) then
            write(iulog,*) 'DEBUG: Warning: Negative channel storage found! ',negchan
            ! call shr_sys_abort('mosart: negative channel storage')
         endif
       endif
-      flow = flow / DLevelH2R
-      erout_prev = erout_prev / DLevelH2R
+      flow        = flow        / DLevelH2R
+      erout_prev  = erout_prev  / DLevelH2R
       eroutup_avg = eroutup_avg / DLevelH2R
-      erlat_avg = erlat_avg / DLevelH2R
+      erlat_avg   = erlat_avg   / DLevelH2R
 
     end associate
 
@@ -327,11 +425,36 @@ contains
 
       ehout = -CREHT(TUnit%hslpsqrt(nr), TUnit%nh(nr), TUnit%Gxr(nr), yh)
       if(ehout < 0._r8 .and. (wh + (qsur + ehout) * DeltaT) < TINYVALUE) then
-         ehout = -(qsur + wh / DeltaT)
+         ! limit the amount of outflow to limiter_advec fraction and prevent from going negative
+         ehout = -limiter_advec*(qsur + max(0._r8,wh-epsilon(1._r8)) / DeltaT)
       end if
       dwh = (qsur + ehout)
 
    end subroutine hillslopeRouting
+
+   !-----------------------------------------------------------------------
+
+   subroutine HSR_advect_tracers(nr,DeltaT,wh_liq,ehout_liq,wh,qsur,ehout,dwh)
+     ! Hillslope routing advection of tracers
+
+     ! Arguments
+     integer, intent(in) :: nr        ! index number to use
+     real(r8),intent(in) :: DeltaT    ! Time step in seconds
+     real(r8),intent(in) :: wh_liq    ! storage of surface water [m]
+     real(r8),intent(in) :: ehout_liq ! overland flow from hillslope into the sub-channel [m/s]
+     real(r8),intent(in) :: wh        ! mass storage [kg/m2 or mol/m2]
+     real(r8),intent(in) :: qsur      ! surface mass inflow [kg/m2/s or mol/m2/s]
+     real(r8),intent(out):: ehout     ! overland mass flow from hillslopes into sub-channels [kg/m2/s or mol/m2/s]
+     real(r8),intent(out):: dwh       ! change of mass storage [kg/m2/s or mol/m2/s]
+
+     if (abs(-1._r8/limiter_advec*ehout_liq*DeltaT - wh_liq) < TINYVALUE) then
+        ehout= -limiter_advec*(qsur + max(0._r8,wh-epsilon(1.))/DeltaT)
+     else
+        ehout = ehout_liq/(wh_liq+epsilon(1._r8)) * wh
+     endif
+     dwh   = qsur + ehout
+
+   end subroutine HSR_advect_tracers
 
    !-----------------------------------------------------------------------
 
@@ -355,7 +478,7 @@ contains
          vt = CRVRMAN(TUnit%tslpsqrt(nr), TUnit%nt(nr), rt)
          etout = -vt * mt
          if (wt + (etin + etout) * DeltaT < TINYVALUE) then
-            etout = -(etin + wt/DeltaT)
+            etout = -limiter_advec*(etin + max(0._r8,wt-epsilon(1._r8))/DeltaT)
             if (mt > 0._r8) then
                vt = -etout/mt
             end if
@@ -363,14 +486,40 @@ contains
       end if
       dwt = etin + etout
 
-      if (debug_mosart >= 2) then
+      if (debug_mosart >= 3) then
         ! check stability
-        if (vt < -TINYVALUE .or. vt > 30) then
-           write(iulog,*) "DEBUG: Numerical error in subnetworkRouting, ", nr,vt
+        if (vt < 0._r8 .or. vt > 30._r8) then
+           write(iulog,*) "DEBUG: Numerical error in subnetworkRouting flow velocity, ", nr,vt
         end if
       endif
-
    end subroutine subnetworkRouting
+
+   !-----------------------------------------------------------------------
+
+   subroutine SNR_advect_tracers(nr,DeltaT, wt_liq,etout_liq,wt,etin,etout,dwt)
+     ! Subnetwork channel routing tracer advection
+
+     ! Arguments
+     integer, intent(in) :: nr        ! index number to use
+     real(r8),intent(in) :: DeltaT    ! Time step [s]
+     real(r8),intent(in) :: wt_liq    ! storage of surface water [m3]
+     real(r8),intent(in) :: etout_liq ! sub-channel flow [m3/s]
+     real(r8),intent(in) :: wt        ! mass storage [kg or mol]
+     real(r8),intent(in) :: etin      ! mass inflow [kg/s or mol/s]
+     real(r8),intent(out):: etout     ! mass flow from sub-channels into main-reach [kg/s or mol/s]
+     real(r8),intent(out):: dwt       ! change of mass storage [kg/s or mol/s]
+
+     if(TUnit%tlen(nr) <= TUnit%hlen(nr)) then ! if no tributaries, no subnetwork channel routing
+       etout = -etin
+     else
+       if (-(1._r8/limiter_advec*etout_liq*DeltaT) / wt_liq >=1._r8) then ! not completely coherent with subchannel routing
+         etout = -limiter_advec*(etin + max(0._r8,wt-epsilon(1._r8))/DeltaT)
+       else
+         etout = etout_liq/(wt_liq+epsilon(1._r8)) * wt
+       endif
+     endif
+     dwt   = etin + etout
+   end subroutine SNR_advect_tracers
 
    !-----------------------------------------------------------------------
 
@@ -391,10 +540,9 @@ contains
       real(r8), intent(out) :: erin      ! inflow from upstream links, [m3/s]
       real(r8), intent(out) :: erout     ! outflow into downstream links, [m3/s]
       real(r8), intent(out) :: vr        ! flow velocity, [m/s]
-      real(r8), intent(out) :: dwr       ! cross section area, [m2]
+      real(r8), intent(out) :: dwr       ! change in water storage, [m3]
 
       ! Local variables
-      integer  :: k
       real(r8) :: temp_gwl
 
       associate( &
@@ -405,7 +553,7 @@ contains
            rlen       => Tunit%rlen,       & ! length of main river reach, [m]
            rwidth     => Tunit%rwidth,     & ! bankfull width of main reach, [m]
            twidth     => Tunit%twidth,     & ! bankfull width of the sub-reach, [m]
-           rslpsqrt   => TUnit%rslpsqrt    & !sqrt of slope of main river reach, [-]
+           rslpsqrt   => TUnit%rslpsqrt    & ! sqrt of slope of main river reach, [-]
          )
 
       ! estimate the inflow from upstream units
@@ -417,24 +565,24 @@ contains
          vr = 0._r8
          erout = -erin - erlateral
       else
-         if(areaTotal2(nr)/rwidth(nr)/rlen(nr) > 1e6_r8) then
+        if(areaTotal2(nr)/(rwidth(nr)*rlen(nr)) > 1e6_r8) then ! if total drainage area is much larger than channel surface area (large river)
             erout = -erin - erlateral
-         else
+        else
             vr = CRVRMAN(rslpsqrt(nr), roughl(nr), rr)
             erout = -vr * mr
             if (-erout > TINYVALUE .and. wr + (erlateral + erin + erout) * DeltaT < TINYVALUE) then
                erout = -(erlateral + erin + wr / DeltaT)
-               if (mr > 0._r8) then
+               if (mr > 0._r8) then ! why should cross section area become <= zero
                   vr = -erout / mr
                end if
             end if
-         end if
+        end if
       end if
 
       temp_gwl = qgwl * area(nr) * frac(nr)
       dwr = erlateral + erin + erout + temp_gwl
 
-      if ((wr/DeltaT + dwr) < -TINYVALUE .and. (trim(bypass_routing_option)/='none') ) then
+      if ((wr/DeltaT + dwr) < 0._r8 .and. (trim(bypass_routing_option)/='none') ) then
          write(iulog,*) 'DEBUG: mosart: ERROR main channel going negative: ', nr
          write(iulog,*) DeltaT, wr, wr/DeltaT, dwr, temp_gwl
          write(iulog,*) ' '
@@ -442,12 +590,12 @@ contains
 
       if (debug_mosart >= 1) then
         ! check for stability
-        if(vr < -TINYVALUE .or. vr > 30) then
-           write(iulog,*) "DEBUG: Numerical error inRouting_KW, ", nr,vr
+        if(vr < 0._r8 .or. vr > 30._r8) then
+           write(iulog,*) "DEBUG: Numerical error in Routing_KW flow velocity, ", nr,vr
         end if
 
         ! check for negative wr
-        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < -TINYVALUE) then
+        if(wr > 1._r8 .and. (wr/DeltaT + dwr)/wr < 0._r8) then
            write(iulog,*) 'DEBUG: negative wr!', wr, dwr, temp_gwl, DeltaT
         !       stop
         end if
@@ -455,6 +603,57 @@ contains
       end associate
    end subroutine MainchannelRouting
 
+   !-----------------------------------------------------------------------
+
+   subroutine MCR_advect_tracers(nr,DeltaT, eroutUp, erlateral, wr_liq, mr, vr, rr, wr, qgwl, erin, erout, dwr)
+     ! Main channel routing tracer advection
+     !Arguments
+     integer,  intent(in)  :: nr        ! index number to use
+     real(r8), intent(in)  :: DeltaT    ! time step [s]
+     real(r8), intent(in)  :: eroutUp   ! mass outflow sum from upstream gridcells, instanatneous [kg/s or mol/s]
+     real(r8), intent(in)  :: erlateral ! lateral mass flow from hillslope [kg/s or mol/s]
+     real(r8), intent(in)  :: wr_liq    ! water storage [m3]
+     real(r8), intent(in)  :: mr        ! cross section area [m2]
+     real(r8), intent(in)  :: vr        ! flow velocity [m/s]
+     real(r8), intent(in)  :: rr        ! hydraulic radius [m]
+     real(r8), intent(in)  :: wr        ! tracer mass storage [kg or mol]
+     real(r8), intent(in)  :: qgwl      ! gwl tracer mass flux from glacier, wetlands and lakes [kg/m2/s or mol/m2/s]
+     real(r8), intent(out) :: erin      ! mass inflow from upstream links [kg/s or mol/s]
+     real(r8), intent(out) :: erout     ! mass inflow into downstream links [kg/s or mol/s]
+     real(r8), intent(out) :: dwr       ! change in mass storage
+
+     associate(area       => Tunit%area,       & ! area of the gridcell [m2]
+               areaTotal2 => Tunit%areaTotal2, & ! computed total upstream drainage area, [m2]
+               frac       => Tunit%frac,       & ! fraction of cell included in the study area, [-]
+               rlen       => Tunit%rlen,       & ! length of main river reach, [m]
+               rwidth     => Tunit%rwidth,     & ! bankfull width of main reach, [m]
+               roughl     => Tunit%nr  ,       & ! manning's roughness of the main reach
+               rslpsqrt   => TUnit%rslpsqrt    & ! sqrt of slope of main river reach [-]
+              )
+
+     ! Mass inflow from upstream regions
+     erin = 0._r8
+     erin = erin - eroutUp
+
+     ! estimate the outflow
+     if (rlen(nr) <= 0._r8) then ! no river network, no channel routing
+       erout = -erin - erlateral
+     else
+       if(areaTotal2(nr)/(rwidth(nr)*rlen(nr)) > 1e6_r8) then
+         erout = -erin - erlateral
+       else
+         if (abs(vr - CRVRMAN(rslpsqrt(nr), roughl(nr), rr)) < TINYVALUE) then
+           erout = -vr*mr/(wr_liq+epsilon(1._r8)) * wr
+         else
+           erout = -(erlateral + erin + (wr_liq / DeltaT)/(wr_liq+epsilon(1._r8)) * wr)
+         endif
+       endif
+     endif
+
+     dwr = erlateral + erin + erout + qgwl * area(nr) * frac(nr)
+
+     end associate
+   end subroutine MCR_advect_tracers
    !-----------------------------------------------------------------------
 
    subroutine updateState_hillslope(wh, yh)

@@ -148,8 +148,8 @@ contains
             else
                ! note nt-2 below since qsur_liq_nonh2o only refers to non-water tracers and the water tracers are the
                ! first two indices in the nt loop
-               ! seems like currently mass assumed (not concentration)
-               this%in_grc(nr,nt) = (ctl%qsur_liq_nonh2o(nr,nt-2)) * dt
+               ! mass assumed (not concentration)
+               this%in_grc(nr,nt) = (ctl%qsur_liq_nonh2o(nr,nt-nt_ice)) * dt
             end if
             ! this was for budget_terms(17)
             !if (nt==1) then
